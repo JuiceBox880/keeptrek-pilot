@@ -14,10 +14,10 @@ from google.oauth2 import service_account
 # =====================================================
 st.set_page_config(page_title="KeepTrek Pilot", layout="centered")
 st.title("🏕️ KeepTrek Pilot")
-st.write("Upload a guest card. We will coerce it into compliance.")
+st.write("Upload a guest card. Paper is stubborn. We persist.")
 
 # =====================================================
-# Google Vision Client
+# Vision Client
 # =====================================================
 credentials = service_account.Credentials.from_service_account_info(
     dict(st.secrets["google"])
@@ -27,68 +27,71 @@ client = vision.ImageAnnotatorClient(credentials=credentials)
 # =====================================================
 # Helpers
 # =====================================================
-def normalize_email_text(text):
-    text = re.sub(r"\s*@\s*", "@", text)
-    text = re.sub(r"\s*\.\s*", ".", text)
-    return text
+def normalize(text):
+    return re.sub(r"\s+", " ", text).strip()
 
-def ink_score(region):
+def ink_density(region):
     if region.size == 0:
         return 0
-    dark = region < 175
-    return np.mean(dark)
+    return np.mean(region < 170)
 
-def checkbox_region(img, word, offset=120):
+def region_from_anchor(img, anchor, dx1, dx2, dy=8):
     h, w = img.shape
-    x2 = max(0, word["x1"] - 10)
-    x1 = max(0, x2 - offset)
-    y1 = max(0, word["y1"] - 8)
-    y2 = min(h, word["y2"] + 8)
+    x1 = max(0, anchor["x2"] + dx1)
+    x2 = min(w, anchor["x2"] + dx2)
+    y1 = max(0, anchor["y1"] - dy)
+    y2 = min(h, anchor["y2"] + dy)
     return img[y1:y2, x1:x2]
 
-def checkbox_checked(img, word):
-    region = checkbox_region(img, word)
-    score = ink_score(region)
+def extract_text_near(words, anchor_word, direction="right", max_dist=350):
+    for w in words:
+        if w["text"].upper() == anchor_word:
+            ax = w["x2"]
+            ay1, ay2 = w["y1"], w["y2"]
+            candidates = [
+                t["text"] for t in words
+                if t["x1"] > ax and abs(t["y1"] - ay1) < 20
+                and t["x1"] < ax + max_dist
+            ]
+            return " ".join(candidates)
+    return ""
 
-    # diagonal stroke detection
-    diag = np.trace(region < 175) if region.size else 0
-    return score > 0.06 or diag > 5
+def checkbox_checked(img, label_word):
+    box_height = label_word["y2"] - label_word["y1"]
+    scan_width = box_height * 4
+
+    x2 = label_word["x1"] - 5
+    x1 = max(0, x2 - scan_width)
+    y1 = max(0, label_word["y1"] - 6)
+    y2 = min(img.shape[0], label_word["y2"] + 6)
+
+    region = img[y1:y2, x1:x2]
+    return ink_density(region) > 0.08
 
 def strongest_mark(img, words, labels):
     scores = {}
     for label in labels:
         for w in words:
             if w["text"].upper() == label:
-                region = checkbox_region(img, w)
-                scores[label] = ink_score(region)
+                x1 = max(0, w["x1"] - 120)
+                x2 = w["x1"] - 5
+                y1 = w["y1"] - 6
+                y2 = w["y2"] + 6
+                region = img[y1:y2, x1:x2]
+                scores[label] = ink_density(region)
     return max(scores, key=scores.get) if scores else ""
-
-def extract_field_right(words, label, max_words=4):
-    for w in words:
-        if w["text"].upper() == label:
-            y_mid = (w["y1"] + w["y2"]) / 2
-            candidates = [
-                x for x in words
-                if x["x1"] > w["x2"]
-                and abs(((x["y1"] + x["y2"]) / 2) - y_mid) < 20
-            ]
-            candidates = sorted(candidates, key=lambda x: x["x1"])
-            return " ".join(c["text"] for c in candidates[:max_words])
-    return ""
 
 # =====================================================
 # Upload
 # =====================================================
-uploaded_file = st.file_uploader(
-    "Upload an info card image",
-    type=["jpg", "jpeg", "png"]
-)
+uploaded_file = st.file_uploader("Upload card image", ["jpg", "jpeg", "png"])
 
 if uploaded_file:
+
     file_bytes = uploaded_file.read()
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     os.makedirs("uploads", exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     with open(f"uploads/{ts}_{uploaded_file.name}", "wb") as f:
         f.write(file_bytes)
 
@@ -101,15 +104,12 @@ if uploaded_file:
     response = client.text_detection(image=image)
 
     if not response.text_annotations:
-        st.error("No text detected.")
         st.stop()
 
-    full_text = normalize_email_text(
-        response.full_text_annotation.text
-    )
+    full_text = normalize(response.full_text_annotation.text)
 
     # =================================================
-    # Prep Image
+    # Image Prep
     # =================================================
     gray = Image.open(BytesIO(file_bytes)).convert("L")
     img = np.array(gray)
@@ -129,23 +129,19 @@ if uploaded_file:
         })
 
     # =================================================
-    # Extract Anchored Fields
+    # FIELD EXTRACTION (ANCHOR-BASED)
     # =================================================
-    name = extract_field_right(words, "NAME", max_words=3)
-    phone = extract_field_right(words, "PHONE", max_words=3)
-    email = extract_field_right(words, "EMAIL", max_words=4)
+    name = extract_text_near(words, "NAME")
+    phone = extract_text_near(words, "PHONE")
 
-    phone_match = re.search(r"\d{3}[\s.-]?\d{3}[\s.-]?\d{4}", phone)
-    phone = phone_match.group(0) if phone_match else phone
-
-    email_match = re.search(
+    email_candidates = re.findall(
         r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
-        email
+        full_text.replace(" ", "")
     )
-    email = email_match.group(0) if email_match else email
+    email = email_candidates[0] if email_candidates else ""
 
     # =================================================
-    # Options
+    # OPTIONS
     # =================================================
     GROUPS = [
         "Get Baptized",
@@ -181,10 +177,10 @@ if uploaded_file:
         )
     ]
 
-    detected_age = strongest_mark(img, words, AGES)
+    detected_age = strongest_mark(img, words, AGES) or "ADULT"
 
     # =================================================
-    # Review UI
+    # REVIEW
     # =================================================
     st.subheader("📋 Review & Confirm")
 
@@ -193,11 +189,7 @@ if uploaded_file:
         phone_i = st.text_input("Phone", phone)
         email_i = st.text_input("Email", email)
 
-        age_i = st.radio(
-            "Age Group",
-            AGES,
-            index=AGES.index(detected_age) if detected_age else 2
-        )
+        age_i = st.radio("Age Group", AGES, AGES.index(detected_age))
 
         st.markdown("### Groups")
         group_i = {g: st.checkbox(g, g in detected_groups) for g in GROUPS}
@@ -205,15 +197,15 @@ if uploaded_file:
         st.markdown("### Teams")
         team_i = {t: st.checkbox(t, t in detected_teams) for t in TEAMS}
 
-        submitted = st.form_submit_button("Confirm Entry")
+        submit = st.form_submit_button("Confirm")
 
-    if submitted:
-        st.success("Saved. The paper has been defeated.")
+    if submit:
+        st.success("Saved. Paper defeated.")
         st.json({
             "name": name_i,
             "phone": phone_i,
             "email": email_i,
-            "age_group": age_i,
+            "age": age_i,
             "groups": [g for g, v in group_i.items() if v],
             "teams": [t for t, v in team_i.items() if v],
             "timestamp": ts
