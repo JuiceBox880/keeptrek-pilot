@@ -52,41 +52,32 @@ if uploaded_file is not None:
 
     image = vision.Image(content=uploaded_file.getvalue())
     response = client.text_detection(image=image)
-    texts = response.text_annotations
+    annotations = response.text_annotations
 
-    if not texts:
+    if not annotations:
         st.warning("No text detected.")
     else:
-        # --- RAW OCR TEXT ---
-        raw_text = texts[0].description
+        # -------------------------------------------------
+        # RAW OCR (for debugging)
+        # -------------------------------------------------
+        raw_text = annotations[0].description
         st.text(raw_text)
 
-        # --- NORMALIZE INTO LINES ---
-        lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
+        # -------------------------------------------------
+        # COLLECT WORDS WITH BOUNDING BOXES
+        # -------------------------------------------------
+        words = []
+        for ann in annotations[1:]:
+            box = ann.bounding_poly.vertices
+            center_x = sum(v.x for v in box) / 4
+            center_y = sum(v.y for v in box) / 4
 
-        # --- HELPER: value after a label ---
-        def value_after(label, lines):
-            if label in lines:
-                idx = lines.index(label)
-                if idx + 1 < len(lines):
-                    return lines[idx + 1]
-            return None
+            words.append({
+                "text": ann.description.strip(),
+                "x": center_x,
+                "y": center_y
+            })
 
-        # --- EXTRACT CORE FIELDS ---
-        name = value_after("NAME", lines)
-        phone = value_after("PHONE", lines)
-        email = value_after("EMAIL", lines)
-
-        # --- AGE GROUP (single select) ---
-        age_group = None
-        for option in ["CHILD", "TEEN", "ADULT"]:
-            if option in lines:
-                age_group = option
-                break
-
-        # --- DISPLAY PARSED RESULTS ---
-        st.subheader("Parsed Fields")
-        st.write(f"**Name:** {name or '—'}")
-        st.write(f"**Phone:** {phone or '—'}")
-        st.write(f"**Email:** {email or '—'}")
-        st.write(f"**Age Group:** {age_group or '—'}")
+        # -------------------------------------------------
+        # HANDWRITTEN FIELDS (regex-based)
+        # -------------------------------------------------
