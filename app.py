@@ -4,7 +4,7 @@ import re
 import os
 from io import BytesIO
 from datetime import datetime
-from PIL import Image
+from PIL import Image, ImageOps
 
 from google.cloud import vision
 from google.oauth2 import service_account
@@ -35,48 +35,47 @@ def ink_density(region):
         return 0
     return np.mean(region < 170)
 
-def region_from_anchor(img, anchor, dx1, dx2, dy=8):
-    h, w = img.shape
-    x1 = max(0, anchor["x2"] + dx1)
-    x2 = min(w, anchor["x2"] + dx2)
-    y1 = max(0, anchor["y1"] - dy)
-    y2 = min(h, anchor["y2"] + dy)
-    return img[y1:y2, x1:x2]
-
-def extract_text_near(words, anchor_word, direction="right", max_dist=350):
-    for w in words:
-        if w["text"].upper() == anchor_word:
-            ax = w["x2"]
-            ay1, ay2 = w["y1"], w["y2"]
-            candidates = [
-                t["text"] for t in words
-                if t["x1"] > ax and abs(t["y1"] - ay1) < 20
-                and t["x1"] < ax + max_dist
-            ]
-            return " ".join(candidates)
-    return ""
-
 def checkbox_checked(img, label_word):
-    box_height = label_word["y2"] - label_word["y1"]
-    scan_width = box_height * 4
+    """
+    Looks LEFT of a label for ANY handwritten mark:
+    dot, x, check, slash.
+    """
+    h, w = img.shape
+    box_h = label_word["y2"] - label_word["y1"]
 
-    x2 = label_word["x1"] - 5
-    x1 = max(0, x2 - scan_width)
-    y1 = max(0, label_word["y1"] - 6)
-    y2 = min(img.shape[0], label_word["y2"] + 6)
+    x2 = max(0, label_word["x1"] - 5)
+    x1 = max(0, x2 - box_h * 6)      # wider search
+    y1 = max(0, label_word["y1"] - box_h)
+    y2 = min(h, label_word["y2"] + box_h)
 
     region = img[y1:y2, x1:x2]
-    return ink_density(region) > 0.08
+
+    density = ink_density(region)
+    return density > 0.06            # forgiving threshold
+
+def extract_text_near(words, anchor, max_dist=350):
+    for w in words:
+        if w["text"].upper() == anchor:
+            ax = w["x2"]
+            ay = w["y1"]
+            nearby = [
+                t["text"] for t in words
+                if t["x1"] > ax
+                and abs(t["y1"] - ay) < 25
+                and t["x1"] < ax + max_dist
+            ]
+            return " ".join(nearby)
+    return ""
 
 def strongest_mark(img, words, labels):
     scores = {}
     for label in labels:
         for w in words:
             if w["text"].upper() == label:
-                x1 = max(0, w["x1"] - 120)
+                x1 = max(0, w["x1"] - 150)
                 x2 = w["x1"] - 5
-                y1 = w["y1"] - 6
-                y2 = w["y2"] + 6
+                y1 = max(0, w["y1"] - 15)
+                y2 = min(img.shape[0], w["y2"] + 15)
                 region = img[y1:y2, x1:x2]
                 scores[label] = ink_density(region)
     return max(scores, key=scores.get) if scores else ""
@@ -86,127 +85,139 @@ def strongest_mark(img, words, labels):
 # =====================================================
 uploaded_file = st.file_uploader("Upload card image", ["jpg", "jpeg", "png"])
 
-if uploaded_file:
+if uploaded_file is None:
+    st.stop()
 
-    file_bytes = uploaded_file.read()
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+# =====================================================
+# Read + Normalize Image (ONCE)
+# =====================================================
+file_bytes = uploaded_file.read()
 
-    os.makedirs("uploads", exist_ok=True)
-    with open(f"uploads/{ts}_{uploaded_file.name}", "wb") as f:
-        f.write(file_bytes)
+pil_img = Image.open(BytesIO(file_bytes))
+pil_img = ImageOps.exif_transpose(pil_img)
 
-    st.image(uploaded_file, use_container_width=True)
+if pil_img.width > pil_img.height:
+    pil_img = pil_img.rotate(90, expand=True)
 
-    # =================================================
-    # OCR
-    # =================================================
-    image = vision.Image(content=file_bytes)
-    response = client.text_detection(image=image)
+buffer = BytesIO()
+pil_img.save(buffer, format="JPEG")
+file_bytes = buffer.getvalue()
 
-    if not response.text_annotations:
-        st.stop()
+st.image(pil_img, use_container_width=True)
 
-    full_text = normalize(response.full_text_annotation.text)
+# =====================================================
+# Save copy
+# =====================================================
+os.makedirs("uploads", exist_ok=True)
+ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+with open(f"uploads/{ts}_{uploaded_file.name}", "wb") as f:
+    f.write(file_bytes)
 
-    # =================================================
-    # Image Prep
-    # =================================================
-    gray = Image.open(BytesIO(file_bytes)).convert("L")
-    img = np.array(gray)
+# =====================================================
+# OCR
+# =====================================================
+image = vision.Image(content=file_bytes)
+response = client.text_detection(image=image)
 
-    # =================================================
-    # Word Boxes
-    # =================================================
-    words = []
-    for ann in response.text_annotations[1:]:
-        v = ann.bounding_poly.vertices
-        words.append({
-            "text": ann.description.strip(),
-            "x1": min(p.x for p in v),
-            "x2": max(p.x for p in v),
-            "y1": min(p.y for p in v),
-            "y2": max(p.y for p in v),
-        })
+if not response.text_annotations:
+    st.warning("No text detected.")
+    st.stop()
 
-    # =================================================
-    # FIELD EXTRACTION (ANCHOR-BASED)
-    # =================================================
-    name = extract_text_near(words, "NAME")
-    phone = extract_text_near(words, "PHONE")
+full_text = normalize(response.full_text_annotation.text)
 
-    email_candidates = re.findall(
-        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
-        full_text.replace(" ", "")
-    )
-    email = email_candidates[0] if email_candidates else ""
+# =====================================================
+# Prep image for ink detection
+# =====================================================
+gray = pil_img.convert("L")
+img = np.array(gray)
 
-    # =================================================
-    # OPTIONS
-    # =================================================
-    GROUPS = [
-        "Get Baptized",
-        "Foundation Class",
-        "Community Group",
-        "Women's Bible Study",
-        "Men's Bible Study"
-    ]
+# =====================================================
+# Word boxes
+# =====================================================
+words = []
+for ann in response.text_annotations[1:]:
+    v = ann.bounding_poly.vertices
+    words.append({
+        "text": ann.description.strip(),
+        "x1": min(p.x for p in v),
+        "x2": max(p.x for p in v),
+        "y1": min(p.y for p in v),
+        "y2": max(p.y for p in v),
+    })
 
-    TEAMS = [
-        "Coffee Crew",
-        "Parking Lot Team",
-        "Sanctuary Reset Team",
-        "Tech Assistant",
-        "Event Setup/Clean Up"
-    ]
+# =====================================================
+# Anchored field extraction
+# =====================================================
+name = extract_text_near(words, "NAME")
+phone = extract_text_near(words, "PHONE")
 
-    AGES = ["CHILD", "TEEN", "ADULT"]
+emails = re.findall(
+    r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+    full_text.replace(" ", "")
+)
+email = emails[0] if emails else ""
 
-    detected_groups = [
-        g for g in GROUPS
-        if any(
-            checkbox_checked(img, w)
-            for w in words if w["text"].lower() == g.lower()
-        )
-    ]
+# =====================================================
+# Options
+# =====================================================
+GROUPS = [
+    "Get Baptized",
+    "Foundation Class",
+    "Community Group",
+    "Women's Bible Study",
+    "Men's Bible Study"
+]
 
-    detected_teams = [
-        t for t in TEAMS
-        if any(
-            checkbox_checked(img, w)
-            for w in words if w["text"].lower() == t.lower()
-        )
-    ]
+TEAMS = [
+    "Coffee Crew",
+    "Parking Lot Team",
+    "Sanctuary Reset Team",
+    "Tech Assistant",
+    "Event Setup/Clean Up"
+]
 
-    detected_age = strongest_mark(img, words, AGES) or "ADULT"
+AGES = ["CHILD", "TEEN", "ADULT"]
 
-    # =================================================
-    # REVIEW
-    # =================================================
-    st.subheader("📋 Review & Confirm")
+detected_groups = [
+    g for g in GROUPS
+    if any(checkbox_checked(img, w) for w in words if w["text"] == g)
+]
 
-    with st.form("confirm"):
-        name_i = st.text_input("Name", name)
-        phone_i = st.text_input("Phone", phone)
-        email_i = st.text_input("Email", email)
+detected_teams = [
+    t for t in TEAMS
+    if any(checkbox_checked(img, w) for w in words if w["text"] == t)
+]
 
-        age_i = st.radio("Age Group", AGES, AGES.index(detected_age))
+detected_age = strongest_mark(img, words, AGES) or "ADULT"
 
-        st.markdown("### Groups")
-        group_i = {g: st.checkbox(g, g in detected_groups) for g in GROUPS}
+# =====================================================
+# Review & Confirm (Editable)
+# =====================================================
+st.subheader("📋 Review & Confirm")
 
-        st.markdown("### Teams")
-        team_i = {t: st.checkbox(t, t in detected_teams) for t in TEAMS}
+with st.form("confirm"):
+    name_i = st.text_input("Name", name)
+    phone_i = st.text_input("Phone", phone)
+    email_i = st.text_input("Email", email)
 
-        submit = st.form_submit_button("Confirm")
+    age_i = st.radio("Age Group", AGES, AGES.index(detected_age))
 
-    if submit:
-        st.success("Saved. Paper defeated.")
-        st.json({
-            "name": name_i,
-            "phone": phone_i,
-            "email": email_i,
-            "age": age_i,
-            "groups": [g for g, v in group_i.items() if v],
-            "teams": [t for t, v in team_i.items() if v],
-            "timestamp": ts
-        })
+    st.markdown("### Groups")
+    group_i = {g: st.checkbox(g, g in detected_groups) for g in GROUPS}
+
+    st.markdown("### Teams")
+    team_i = {t: st.checkbox(t, t in detected_teams) for t in TEAMS}
+
+    submitted = st.form_submit_button("Confirm Entry")
+
+if submitted:
+    st.success("Saved. Paper defeated.")
+    st.json({
+        "name": name_i,
+        "phone": phone_i,
+        "email": email_i,
+        "age": age_i,
+        "groups": [g for g, v in group_i.items() if v],
+        "teams": [t for t, v in team_i.items() if v],
+        "timestamp": ts
+    })
