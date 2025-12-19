@@ -34,9 +34,10 @@ uploaded_file = st.file_uploader(
 )
 
 # -----------------------------
-# MAIN LOGIC (only runs if file exists)
+# MAIN LOGIC (runs only if file exists)
 # -----------------------------
 if uploaded_file is not None:
+
     # ---------------------------------
     # Read file ONCE (Streamlit-safe)
     # ---------------------------------
@@ -56,11 +57,8 @@ if uploaded_file is not None:
     st.image(uploaded_file, caption="Uploaded Card", use_container_width=True)
 
     # ---------------------------------
-    # OCR STEP
+    # OCR STEP (silent)
     # ---------------------------------
-    st.subheader("Extracted Text")
-    st.write("Running OCR…")
-
     image = vision.Image(content=file_bytes)
     response = client.text_detection(image=image)
     annotations = response.text_annotations
@@ -69,10 +67,10 @@ if uploaded_file is not None:
         st.warning("No text detected.")
     else:
         # ---------------------------------
-        # RAW OCR TEXT (debug)
+        # RAW OCR TEXT (hidden)
         # ---------------------------------
-        raw_text = annotations[0].description
-        st.text(raw_text)
+        with st.expander("🔍 View raw OCR text (for debugging)", expanded=False):
+            st.text(annotations[0].description)
 
         # ---------------------------------
         # Load image for ink detection
@@ -108,31 +106,30 @@ if uploaded_file is not None:
         # ---------------------------------
         full_text = " ".join(w["text"] for w in words)
 
-        name_match = re.search(r"[A-Z][a-z]+ [A-Z][a-z]+", full_text)
+        name_match = re.search(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b", full_text)
         phone_match = re.search(r"\b\d{3}\s?\d{3}\s?\d{4}\b", full_text)
         email_match = re.search(
-            r"[A-Za-z0-9._%+-]+@?[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+            r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
             full_text
         )
 
         name = name_match.group(0) if name_match else None
         phone = phone_match.group(0).replace(" ", "") if phone_match else None
-        email = email_match.group(0).replace(" ", "") if email_match else None
+        email = email_match.group(0) if email_match else None
 
         # ---------------------------------
-        # Checkbox logic (ANY ink = checked)
+        # Checkbox logic (handwritten ink only)
         # ---------------------------------
-        INK_THRESHOLD = 0.05
+        INK_THRESHOLD = 0.12
 
         def is_checked(label):
             for w in words:
-                if w["text"].lower() in label.lower():
-                    # checkbox area is LEFT of label
+                if w["text"].lower() == label.lower():
                     region = (
-                        w["x1"] - 70,
-                        w["y1"],
-                        w["x1"] - 5,
-                        w["y2"]
+                        w["x1"] - 80,
+                        w["y1"] - 5,
+                        w["x1"] - 10,
+                        w["y2"] + 5
                     )
                     return ink_density(*region) > INK_THRESHOLD
             return False
@@ -164,17 +161,17 @@ if uploaded_file is not None:
                 age_group = age
 
         # ---------------------------------
-        # DISPLAY RESULTS (spreadsheet-ready)
+        # DISPLAY RESULTS (user-friendly)
         # ---------------------------------
-        st.subheader("Parsed Fields")
+        st.subheader("📋 What we found on this card")
 
         st.write(f"**Name:** {name or '—'}")
         st.write(f"**Phone:** {phone or '—'}")
         st.write(f"**Email:** {email or '—'}")
         st.write(f"**Age Group:** {age_group or '—'}")
 
-        st.write("**Selected Groups:**")
+        st.write("**Next Steps Selected:**")
         st.write(selected_groups or "—")
 
-        st.write("**Selected Teams:**")
+        st.write("**Teams Selected:**")
         st.write(selected_teams or "—")
