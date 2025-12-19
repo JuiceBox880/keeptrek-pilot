@@ -129,7 +129,8 @@ def words_below(label, words, y_padding=10):
         w for w in words
         if w["y1"] > lw["y2"] + y_padding
     ]
-        name = name_match.group(0) if name_match else None
+        
+    name = name_match.group(0) if name_match else None
         phone = phone_match.group(0).replace(" ", "") if phone_match else None
         email = email_match.group(0) if email_match else None
 
