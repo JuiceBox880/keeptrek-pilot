@@ -11,8 +11,10 @@ st.title("🏕️ KeepTrek Pilot")
 st.write("Upload a guest or info card to begin.")
 
 # --- Load Google Vision credentials from Streamlit Secrets ---
+st.write("First char:", repr(st.secrets["GOOGLE_APPLICATION_CREDENTIALS_JSON"][:1]))
+st.write("Last char:", repr(st.secrets["GOOGLE_APPLICATION_CREDENTIALS_JSON"][-1:]))
 credentials_info = json.loads(
-    st.secrets["GOOGLE_APPLICATION_CREDENTIALS_JSON"]
+    st.secrets["GOOGLE_APPLICATION_CREDENTIALS_JSON"].strip()
 )
 credentials = service_account.Credentials.from_service_account_info(
     credentials_info
