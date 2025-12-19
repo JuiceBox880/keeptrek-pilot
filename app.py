@@ -44,13 +44,13 @@ if uploaded_file is not None:
     st.success("Card saved to the cloud.")
     st.image(uploaded_file, caption="Uploaded Card", use_container_width=True)
 
-    # -------------------------
+# -------------------------
 # OCR STEP
 # -------------------------
 st.subheader("Extracted Text")
 st.write("Running OCR…")
 
-image = vision.Image(content=uploaded_file.getvalue())
+image = vision.Image(content=uploaded_file.read())
 response = client.text_detection(image=image)
 annotations = response.text_annotations
 
@@ -71,7 +71,7 @@ else:
     from io import BytesIO
     import re
 
-    pil_img = Image.open(BytesIO(uploaded_file.getvalue())).convert("L")
+    pil_img = Image.open(BytesIO(uploaded_file.read())).convert("L")
     img = np.array(pil_img)
 
     def ink_density(x1, y1, x2, y2):
