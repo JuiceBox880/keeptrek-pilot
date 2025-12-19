@@ -113,7 +113,8 @@ email_match = re.search(
     r"[A-Za-z0-9._%+-]+ *@ *[A-Za-z0-9.-]+ *\. *[A-Za-z]{2,}",
     important_text
 )
-        def words_below(label, words, y_padding=10):
+
+def words_below(label, words, y_padding=10):
     """
     Return only words that appear visually BELOW a given label.
     This lets us read the form like a human would.
