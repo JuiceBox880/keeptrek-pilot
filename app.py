@@ -158,10 +158,10 @@ if uploaded_file is not None:
             if w["text"].lower() == label.lower():
                 return mark_present(
                     img,
-                    w["x1"] - 80,
+                    w["x1"] - 140,
                     w["y1"] - 5,
-                    w["x1"] - 10,
-                    w["y2"] + 5
+                    w["x1"] - 20,
+                    w["y2"] + 20
                 )
         return False
 
