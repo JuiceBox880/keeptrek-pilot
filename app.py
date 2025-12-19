@@ -104,15 +104,30 @@ if uploaded_file is not None:
         # ---------------------------------
         # IMPORTANT INFO (handwritten fields)
         # ---------------------------------
-        full_text = " ".join(w["text"] for w in words)
+        important_words = words_below("IMPORTANT", words)
+important_text = " ".join(w["text"] for w in important_words)
 
-        name_match = re.search(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b", full_text)
-        phone_match = re.search(r"\b\d{3}\s?\d{3}\s?\d{4}\b", full_text)
-        email_match = re.search(
-            r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
-            full_text
-        )
+name_match = re.search(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b", important_text)
+phone_match = re.search(r"\b\d{3}\s?\d{3}\s?\d{4}\b", important_text)
+email_match = re.search(
+    r"[A-Za-z0-9._%+-]+ *@ *[A-Za-z0-9.-]+ *\. *[A-Za-z]{2,}",
+    important_text
+)
+        def words_below(label, words, y_padding=10):
+    """
+    Return only words that appear visually BELOW a given label.
+    This lets us read the form like a human would.
+    """
+    label_words = [w for w in words if w["text"].upper() == label]
+    if not label_words:
+        return []
 
+    lw = label_words[0]
+
+    return [
+        w for w in words
+        if w["y1"] > lw["y2"] + y_padding
+    ]
         name = name_match.group(0) if name_match else None
         phone = phone_match.group(0).replace(" ", "") if phone_match else None
         email = email_match.group(0) if email_match else None
