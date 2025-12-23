@@ -1,209 +1,153 @@
 import streamlit as st
-import numpy as np
-import re
+import gspread
+from google.oauth2.service_account import Credentials
+import pandas as pd
+import base64
 import os
-from io import BytesIO
-from datetime import datetime
-from PIL import Image, ImageOps
+import json
+import re
+from openai import OpenAI
+from dotenv import load_dotenv
+from datetime import datetime, date
 
-from google.cloud import vision
-from google.oauth2 import service_account
+# =========================
+# 🔐 Environment Setup
+# =========================
+load_dotenv()
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    st.error("❌ OPENAI_API_KEY missing.")
+    st.stop()
 
-# =====================================================
-# App Config
-# =====================================================
-st.set_page_config(page_title="KeepTrek Pilot", layout="centered")
-st.title("🏕️ KeepTrek Pilot")
-st.write("Upload a guest card. Paper is stubborn. We persist.")
+client = OpenAI(api_key=api_key)
 
-# =====================================================
-# Vision Client
-# =====================================================
-credentials = service_account.Credentials.from_service_account_info(
-    dict(st.secrets["google"])
+# =========================
+# 🖥️ Page Setup
+# =========================
+st.set_page_config(
+    page_title="KeepTrek Guest Tracker",
+    layout="wide",
+    page_icon="🛤️"
 )
-client = vision.ImageAnnotatorClient(credentials=credentials)
+st.title("📋 KeepTrek Guest Tracker")
 
-# =====================================================
-# Helpers
-# =====================================================
-def normalize(text):
-    return re.sub(r"\s+", " ", text).strip()
+tab1, tab2 = st.tabs(["📝 Guest Entry", "📋 View Guests"])
 
-def ink_density(region):
-    if region.size == 0:
-        return 0
-    return np.mean(region < 170)
+# =========================
+# 🧠 Session State
+# =========================
+st.session_state.setdefault("processed_files", set())
+st.session_state.setdefault("manual_guest_queue", [])
 
-def extract_text_right(words, anchor_label, max_dist=350, y_tol=18):
-    """Extract words appearing to the RIGHT of a label."""
-    for w in words:
-        if w["text"].upper() == anchor_label:
-            ax = w["x2"]
-            ay = (w["y1"] + w["y2"]) / 2
-            parts = [
-                t["text"]
-                for t in words
-                if t["x1"] > ax
-                and abs(((t["y1"] + t["y2"]) / 2) - ay) < y_tol
-                and t["x1"] < ax + max_dist
-            ]
-            return normalize(" ".join(parts))
-    return ""
+# =========================
+# 📄 Google Sheets Setup
+# =========================
+scope = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
+creds = Credentials.from_service_account_file("creds.json", scopes=scope)
+gc = gspread.authorize(creds)
+sheet = gc.open("KeepTrek_TrackingData").sheet1
 
-def checkbox_score(img, word):
-    """Measure ink intensity LEFT of label."""
-    h, w = img.shape
-    box_h = word["y2"] - word["y1"]
-    x2 = max(0, word["x1"] - 5)
-    x1 = max(0, x2 - box_h * 4)
-    y1 = max(0, word["y1"] - 6)
-    y2 = min(h, word["y2"] + 6)
-    region = img[y1:y2, x1:x2]
-    return ink_density(region)
+# =========================
+# 🧱 Column Definition
+# =========================
+COLUMNS = [
+    "Name",
+    "Email",
+    "Phone",
+    "Age Group",
+    "First Visit Date",
+    "Get Baptized",
+    "Foundations Class",
+    "Community Group",
+    "Women's Ministry",
+    "Men's Bible Study",
+    "Coffee Crew",
+    "Parking Lot Team",
+    "Sanctuary Reset Team",
+    "Tech Assistant",
+    "Event Setup / Clean Up",
+    "Notes"
+]
 
-def strongest_checked(img, words, labels, min_score=0.04):
-    scores = {}
-    for label in labels:
-        for w in words:
-            if w["text"].upper() == label:
-                score = checkbox_score(img, w)
-                scores[label] = score
-    if not scores:
-        return []
-    return [
-        k for k, v in scores.items()
-        if v == max(scores.values()) and v > min_score
-    ]
+# Ensure headers exist
+existing_headers = sheet.row_values(1)
+if existing_headers != COLUMNS:
+    sheet.clear()
+    sheet.append_row(COLUMNS)
 
-def multiple_checked(img, words, labels, min_score=0.04):
-    found = []
-    for label in labels:
-        for w in words:
-            if w["text"].lower() == label.lower():
-                if checkbox_score(img, w) > min_score:
-                    found.append(label)
-    return found
+records = sheet.get_all_records()
+data = pd.DataFrame(records) if records else pd.DataFrame(columns=COLUMNS)
 
-# =====================================================
-# Upload
-# =====================================================
-uploaded_file = st.file_uploader("Upload card image", ["jpg", "jpeg", "png"])
+# =========================
+# 📝 TAB 1: Manual Entry
+# =========================
+with tab1:
+    st.subheader("➕ Manually Add a New Guest")
 
-if uploaded_file:
+    with st.form("manual_guest_form"):
+        name = st.text_input("👤 Name")
+        email = st.text_input("📧 Email")
+        phone = st.text_input("📱 Phone")
 
-    file_bytes = uploaded_file.read()
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        age_group = st.radio(
+            "🎂 Age Group",
+            ["Child", "Teen", "Adult"],
+            horizontal=True
+        )
 
-    os.makedirs("uploads", exist_ok=True)
-    with open(f"uploads/{ts}_{uploaded_file.name}", "wb") as f:
-        f.write(file_bytes)
+        st.markdown("### ✅ Areas of Interest")
 
-    # =================================================
-    # Image Normalize (rotation safe)
-    # =================================================
-    pil_img = Image.open(BytesIO(file_bytes))
-    pil_img = ImageOps.exif_transpose(pil_img)
+        checks = {
+            "Get Baptized": st.checkbox("Get Baptized"),
+            "Foundations Class": st.checkbox("Foundations Class"),
+            "Community Group": st.checkbox("Community Group"),
+            "Women's Ministry": st.checkbox("Women's Ministry"),
+            "Men's Bible Study": st.checkbox("Men's Bible Study"),
+            "Coffee Crew": st.checkbox("Coffee Crew"),
+            "Parking Lot Team": st.checkbox("Parking Lot Team"),
+            "Sanctuary Reset Team": st.checkbox("Sanctuary Reset Team"),
+            "Tech Assistant": st.checkbox("Tech Assistant"),
+            "Event Setup / Clean Up": st.checkbox("Event Setup / Clean Up"),
+        }
 
-    if pil_img.width > pil_img.height:
-        pil_img = pil_img.rotate(90, expand=True)
+        notes = st.text_area("🗒️ Notes / Comments")
 
-    buffer = BytesIO()
-    pil_img.save(buffer, format="JPEG")
-    file_bytes = buffer.getvalue()
+        submitted = st.form_submit_button("✅ Add Guest")
 
-    st.image(pil_img, use_container_width=True)
+        if submitted:
+            if not name or not email:
+                st.warning("Please provide at least a name and email.")
+            else:
+                row = {
+                    "Name": name,
+                    "Email": email,
+                    "Phone": phone,
+                    "Age Group": age_group,
+                    "First Visit Date": date.today().strftime("%Y-%m-%d"),
+                    **{k: "✅" if v else "" for k, v in checks.items()},
+                    "Notes": notes
+                }
+                st.session_state.manual_guest_queue.append(row)
+                st.success(f"🕒 {name} added to queue.")
 
-    # =================================================
-    # OCR
-    # =================================================
-    image = vision.Image(content=file_bytes)
-    response = client.text_detection(image=image)
+    if st.session_state.manual_guest_queue:
+        st.subheader("📄 Ready to Submit")
+        st.dataframe(pd.DataFrame(st.session_state.manual_guest_queue), use_container_width=True)
 
-    if not response.text_annotations:
-        st.stop()
+        if st.button("📤 Submit All to Google Sheet"):
+            for guest in st.session_state.manual_guest_queue:
+                sheet.append_row([guest.get(col, "") for col in COLUMNS])
+            st.success("✅ Guests added!")
+            st.session_state.manual_guest_queue.clear()
 
-    # =================================================
-    # Word Boxes
-    # =================================================
-    words = []
-    for ann in response.text_annotations[1:]:
-        v = ann.bounding_poly.vertices
-        words.append({
-            "text": ann.description.strip(),
-            "x1": min(p.x for p in v),
-            "x2": max(p.x for p in v),
-            "y1": min(p.y for p in v),
-            "y2": max(p.y for p in v),
-        })
+    # =========================
+    # 📸 Handwritten Card Upload
+    # =========================
+    st.markdown("---")
+    st.subheader("🧠 Upload a Handwritten Guest Card")
 
-    # =================================================
-    # Image for Ink Detection
-    # =================================================
-    gray = pil_img.convert("L")
-    img = np.array(gray)
-
-    # =================================================
-    # FIELD EXTRACTION (ANCHOR BASED)
-    # =================================================
-    name = extract_text_right(words, "NAME")
-    phone = extract_text_right(words, "PHONE")
-    email = extract_text_right(words, "EMAIL")
-
-    # =================================================
-    # OPTIONS
-    # =================================================
-    GROUPS = [
-        "Get Baptized",
-        "Foundation Class",
-        "Community Group",
-        "Women's Bible Study",
-        "Men's Bible Study"
-    ]
-
-    TEAMS = [
-        "Coffee Crew",
-        "Parking Lot Team",
-        "Sanctuary Reset Team",
-        "Tech Assistant",
-        "Event Setup/Clean Up"
-    ]
-
-    AGES = ["CHILD", "TEEN", "ADULT"]
-
-    detected_groups = multiple_checked(img, words, GROUPS)
-    detected_teams = multiple_checked(img, words, TEAMS)
-    detected_age = strongest_checked(img, words, AGES)
-    detected_age = detected_age[0] if detected_age else "ADULT"
-
-    # =================================================
-    # REVIEW & CONFIRM UI
-    # =================================================
-    st.subheader("📋 Review & Confirm")
-
-    with st.form("confirm"):
-        name_i = st.text_input("Name", name)
-        phone_i = st.text_input("Phone", phone)
-        email_i = st.text_input("Email", email)
-
-        age_i = st.radio("Age Group", AGES, AGES.index(detected_age))
-
-        st.markdown("### Next Steps")
-        group_i = {g: st.checkbox(g, g in detected_groups) for g in GROUPS}
-
-        st.markdown("### Teams")
-        team_i = {t: st.checkbox(t, t in detected_teams) for t in TEAMS}
-
-        submit = st.form_submit_button("Confirm Entry")
-
-    if submit:
-        st.success("Saved. Paper defeated.")
-        st.json({
-            "name": name_i,
-            "phone": phone_i,
-            "email": email_i,
-            "age": age_i,
-            "groups": [g for g, v in group_i.items() if v],
-            "teams": [t for t, v in team_i.items() if v],
-            "timestamp": ts
-        })
+    manual_review = st.toggle("🕵️ Manual Review Mode", value=True)
+    upl
