@@ -2,6 +2,16 @@ import copy
 import datetime
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
+import os
+
+def load_logo():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    logo_path = os.path.join(base_dir, "assets", "keeptrek_logo.png")
+
+    try:
+        return Image.open(logo_path)
+    except Exception:
+        return generate_placeholder_logo()
 
 # =====================================
 # Page Config
