@@ -1,5 +1,4 @@
 import streamlit as st
-from datetime import datetime
 
 # =====================================
 # Page Config
@@ -70,7 +69,7 @@ def trend_arrow(change):
         return "↓"
     return "↑"
 
-def metric_card(title, data_key):
+def metric_card(title, data_key, key_prefix):
     with st.container(border=True):
         st.subheader(title)
 
@@ -91,18 +90,24 @@ def metric_card(title, data_key):
         # --- Other Time Ranges ---
         for label in TIME_RANGES[1:]:
             v, c = MOCK_DATA[data_key][label]
-            st.write(
-                f"**{label}:** {v}  {trend_arrow(c)} {c}"
-            )
+            st.write(f"**{label}:** {v}  {trend_arrow(c)} {c}")
 
         st.divider()
 
         # --- Actions ---
         col_a, col_b = st.columns(2)
         with col_a:
-            st.button("➕ Add New Data", use_container_width=True)
+            st.button(
+                "➕ Add New Data",
+                key=f"{key_prefix}_add",
+                use_container_width=True
+            )
         with col_b:
-            st.button("🔄 Refresh", use_container_width=True)
+            st.button(
+                "🔄 Refresh",
+                key=f"{key_prefix}_refresh",
+                use_container_width=True
+            )
 
 # =====================================
 # Main Dashboard Layout
@@ -110,13 +115,13 @@ def metric_card(title, data_key):
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    metric_card("Church Attendance", "attendance")
+    metric_card("Church Attendance", "attendance", "attendance")
 
 with col2:
-    metric_card("New Guests", "guests")
+    metric_card("New Guests", "guests", "guests")
 
 with col3:
-    metric_card("Next Steps", "next_steps")
+    metric_card("Next Steps", "next_steps", "next_steps")
 
 st.divider()
 
