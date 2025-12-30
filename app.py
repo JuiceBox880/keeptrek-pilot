@@ -1,31 +1,28 @@
-import copy
-import os
+from typing import Dict, Tuple
+
 import streamlit as st
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
 # ============================================================
-# KeepTrek (Pilot) — Dashboard + Placeholder Pages
-# Clean, stable, no “time range selector” (everything visible)
+# Types
 # ============================================================
+MetricValue = Tuple[int, str]
+MetricStore = Dict[str, Dict[str, MetricValue]]
 
-# -----------------------------
-# Page Config
-# -----------------------------
-st.set_page_config(page_title="KeepTrek Dashboard", layout="wide")
+# ============================================================
+# Theme
+# ============================================================
+PALETTE = {
+    "navy": "#054063",
+    "teal": "#179171",
+    "green": "#34a94d",
+    "blue_gray": "#47919e",
+    "muted": "#6b7280",
+}
 
-# -----------------------------
-# Router (simple + reliable)
-# -----------------------------
-if "page" not in st.session_state:
-    st.session_state["page"] = "dashboard"
-
-def go_to(page_name: str):
-    st.session_state["page"] = page_name
-    st.rerun()
-
-# -----------------------------
-# Data Labels (always shown)
-# -----------------------------
+# ============================================================
+# Time Ranges
+# ============================================================
 TIME_RANGES = [
     "Last Week",
     "Last 30 Days",
@@ -33,232 +30,233 @@ TIME_RANGES = [
     "Last 90 Days",
     "One Year Snapshot",
 ]
+HERO_TIME_RANGE = TIME_RANGES[0]
 
-# -----------------------------
+# ============================================================
 # Mock Data (swap later for Sheets)
-# Each entry: [value, change_string]
-# change_string: "+4.2%", "-1.3%", or "N/A"
-# -----------------------------
-MOCK_DATA = {
+# ============================================================
+MOCK_DATA: MetricStore = {
     "attendance": {
-        "Last Week": [248, "+4.2%"],
-        "Last 30 Days": [982, "+1.1%"],
-        "Last Quarter": [2901, "-0.6%"],
-        "Last 90 Days": [2875, "N/A"],
-        "One Year Snapshot": [11234, "+6.4%"],
+        "Last Week": (248, "+4.2%"),
+        "Last 30 Days": (982, "+1.1%"),
+        "Last Quarter": (2901, "-0.6%"),
+        "Last 90 Days": (2875, "N/A"),
+        "One Year Snapshot": (11234, "+6.4%"),
     },
     "guests": {
-        "Last Week": [21, "+10%"],
-        "Last 30 Days": [78, "+3%"],
-        "Last Quarter": [212, "-2%"],
-        "Last 90 Days": [201, "N/A"],
-        "One Year Snapshot": [865, "+8%"],
+        "Last Week": (21, "+10%"),
+        "Last 30 Days": (78, "+3%"),
+        "Last Quarter": (212, "-2%"),
+        "Last 90 Days": (201, "N/A"),
+        "One Year Snapshot": (865, "+8%"),
     },
     "next_steps": {
-        "Last Week": [14, "+5%"],
-        "Last 30 Days": [63, "+2%"],
-        "Last Quarter": [188, "+1%"],
-        "Last 90 Days": [179, "N/A"],
-        "One Year Snapshot": [742, "+4%"],
+        "Last Week": (14, "+5%"),
+        "Last 30 Days": (63, "+2%"),
+        "Last Quarter": (188, "+1%"),
+        "Last 90 Days": (179, "N/A"),
+        "One Year Snapshot": (742, "+4%"),
     },
 }
 
-# -----------------------------
-# Session State Init
-# -----------------------------
-if "data" not in st.session_state:
-    st.session_state["data"] = copy.deepcopy(MOCK_DATA)
 
-# -----------------------------
-# Helpers
-# -----------------------------
+# ============================================================
+# Page + Global Styling
+# ============================================================
+def configure_page() -> None:
+    st.set_page_config(page_title="KeepTrek Dashboard", layout="wide", page_icon="📊")
+
+    st.markdown(
+        f"""
+        <style>
+        :root {{
+          --kt-navy: {PALETTE['navy']};
+          --kt-teal: {PALETTE['teal']};
+          --kt-green: {PALETTE['green']};
+          --kt-blue-gray: {PALETTE['blue_gray']};
+          --kt-muted: {PALETTE['muted']};
+        }}
+
+        .block-container {{
+          padding-top: 1.25rem;
+          padding-bottom: 2.25rem;
+        }}
+
+        body {{
+          background: linear-gradient(180deg, #f7fbfd 0%, #f4f8fa 45%, #fdfefd 100%);
+          color: var(--kt-navy);
+        }}
+
+        h1, h2, h3, h4, h5, h6 {{
+          color: var(--kt-navy);
+          letter-spacing: -0.02em;
+        }}
+
+        .kt-card-title {{
+          margin-bottom: 6px;
+          color: var(--kt-navy);
+        }}
+
+        /* Buttons: glossy-ish gradient */
+        .stButton > button {{
+          background: linear-gradient(135deg, var(--kt-teal), var(--kt-green));
+          color: white;
+          border: none;
+          border-radius: 8px;
+          font-weight: 800;
+          box-shadow: 0 2px 8px rgba(5, 64, 99, 0.18);
+          padding: 0.6rem 0.9rem;
+        }}
+
+        .stButton > button:hover {{
+          background: linear-gradient(135deg, var(--kt-green), var(--kt-teal));
+          box-shadow: 0 6px 14px rgba(5, 64, 99, 0.18);
+        }}
+
+        .stButton > button:focus {{
+          outline: 2px solid var(--kt-blue-gray);
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# ============================================================
+# Header
+# ============================================================
+def render_header() -> None:
+    logo = Image.open("assets/keeptrek_logo.png")
+
+    col1, col2 = st.columns([1.4, 6])
+    with col1:
+        st.image(logo, width=200)
+    with col2:
+        st.markdown(
+            """
+            <div style="line-height:1.05;">
+              <h1 style="margin-bottom:0;">KeepTrek</h1>
+              <p style="color: var(--kt-blue-gray); margin-top: 6px; font-weight:600;">
+                Turning attendance into insight
+              </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+# ============================================================
+# Trend Helpers
+# ============================================================
 def trend_arrow(change: str) -> str:
-    if not isinstance(change, str) or change == "N/A":
+    normalized = (change or "").strip()
+    if normalized == "N/A":
         return "—"
-    s = change.strip()
-    if s.startswith("-"):
+    if normalized.startswith("-"):
         return "↓"
-    if s.startswith("+"):
+    if normalized.startswith("+"):
         return "↑"
     return "→"
 
+
 def trend_color(change: str) -> str:
-    if not isinstance(change, str) or change == "N/A":
-        return "#6b7280"  # gray
-    s = change.strip()
-    if s.startswith("-"):
-        return "#dc2626"  # red
-    if s.startswith("+"):
-        return "#16a34a"  # green
-    return "#6b7280"
+    normalized = (change or "").strip()
+    if normalized == "N/A":
+        return PALETTE["blue_gray"]
+    if normalized.startswith("-"):
+        return PALETTE["navy"]
+    if normalized.startswith("+"):
+        return PALETTE["green"]
+    return PALETTE["muted"]
 
-def safe_get_metric(data: dict, key: str, label: str):
-    try:
-        entry = data.get(key, {}).get(label)
-        if entry and isinstance(entry, (list, tuple)) and len(entry) >= 2:
-            return int(entry[0]), str(entry[1])
-    except Exception:
-        pass
-    return 0, "N/A"
-
-def generate_placeholder_logo(size=(220, 70), text="KeepTrek"):
-    img = Image.new("RGBA", size, (255, 255, 255, 0))
-    draw = ImageDraw.Draw(img)
-    try:
-        font = ImageFont.load_default()
-    except Exception:
-        font = None
-    # NOTE: draw.textbbox not always available on older PIL; keep simple
-    w, h = draw.textsize(text, font=font)
-    draw.text(((size[0] - w) / 2, (size[1] - h) / 2), text, fill=(40, 40, 40), font=font)
-    return img
-
-def load_logo():
-    try:
-        base = os.path.dirname(os.path.abspath(__file__))
-        logo_path = os.path.join(base, "assets", "keeptrek_logo.png")
-        return Image.open(logo_path)
-    except Exception:
-        return generate_placeholder_logo()
-
-logo = load_logo()
-
-# -----------------------------
-# Global Style (subtle polish)
-# -----------------------------
-st.markdown(
-    """
-    <style>
-      /* Tighten top padding a bit */
-      .block-container { padding-top: 1.4rem; padding-bottom: 2.2rem; }
-
-      /* Make headings feel a bit more “product” */
-      h1, h2, h3 { letter-spacing: -0.02em; }
-
-      /* Improve card spacing on smaller screens */
-      @media (max-width: 900px) {
-        .block-container { padding-left: 1rem; padding-right: 1rem; }
-      }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
 
 # ============================================================
-# Header (all pages)
+# UI Rendering
 # ============================================================
-header_col1, header_col2 = st.columns([2, 7], vertical_alignment="center")
-
-with header_col1:
-    st.image(logo, width=190)
-
-with header_col2:
+def render_metric_row(label: str, value: int, change: str) -> None:
     st.markdown(
-        """
-        <div style="line-height: 1.1;">
-          <div style="font-size: 44px; font-weight: 850; margin: 0;">KeepTrek</div>
-          <div style="color:#6b7280; font-size: 16px; margin-top: 6px;">
-            Turning attendance into insight
+        f"""
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">
+          <div style="font-weight:700; color: var(--kt-navy);">{label}</div>
+          <div style="font-weight:800; color:{trend_color(change)};">
+            {value} &nbsp; {trend_arrow(change)} {change}
           </div>
         </div>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
-st.divider()
 
-# ============================================================
-# Dashboard Page
-# ============================================================
-if st.session_state["page"] == "dashboard":
+def render_hero_metric(value: int, change: str) -> None:
+    st.markdown(
+        f"""
+        <div style="display:flex; align-items:baseline; gap:14px;">
+          <div style="font-size:52px; font-weight:900; line-height:1; color: var(--kt-navy);">
+            {value}
+          </div>
+          <div style="font-size:16px; font-weight:900; color:{trend_color(change)};">
+            {trend_arrow(change)} {change}
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    def metric_card(title: str, data_key: str, key_prefix: str):
-        with st.container(border=True):
-            st.subheader(title)
 
-            # --- Hero metric: Last Week (largest, always)
-            hero_value, hero_change = safe_get_metric(st.session_state["data"], data_key, "Last Week")
-            st.markdown(
-                f"""
-                <div style="display:flex; align-items:baseline; gap:14px; margin-top:4px;">
-                  <div style="font-size:52px; font-weight:900; line-height:1;">{hero_value}</div>
-                  <div style="font-size:16px; font-weight:750; color:{trend_color(hero_change)};">
-                    {trend_arrow(hero_change)} {hero_change}
-                  </div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+def metric_card(title: str, data_key: str, key_prefix: str) -> None:
+    with st.container(border=True):
+        st.markdown(f"<h3 class='kt-card-title'>{title}</h3>", unsafe_allow_html=True)
 
-            st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+        hero_value, hero_change = MOCK_DATA[data_key][HERO_TIME_RANGE]
+        render_hero_metric(hero_value, hero_change)
 
-            # --- Snapshot list (everything visible, clean)
-            for label in TIME_RANGES[1:]:
-                v, c = safe_get_metric(st.session_state["data"], data_key, label)
-                st.markdown(
-                    f"""
-                    <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0;">
-                      <div style="font-weight:650; color:#374151;">{label}</div>
-                      <div style="font-weight:750; color:{trend_color(c)};">
-                        {v} &nbsp; {trend_arrow(c)} {c}
-                      </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+        st.divider()
 
-            st.divider()
+        for label in TIME_RANGES[1:]:
+            value, change = MOCK_DATA[data_key][label]
+            render_metric_row(label, value, change)
 
-            # --- Actions (wired to routing; refresh is placeholder)
-            col_a, col_b = st.columns(2)
-            with col_a:
-                if st.button("➕ Add New Data", key=f"{key_prefix}_add", use_container_width=True):
-                    go_to(f"add_{data_key}")
-            with col_b:
-                st.button("🔄 Refresh", key=f"{key_prefix}_refresh", use_container_width=True)
+        st.divider()
 
-    # --- 3-card layout
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.button("➕ Add New Data", key=f"{key_prefix}_add_new_data", use_container_width=True)
+        with col_b:
+            st.button("🔄 Refresh", key=f"{key_prefix}_refresh", use_container_width=True)
+
+
+def render_layout() -> None:
+    render_header()
+
     col1, col2, col3 = st.columns(3)
     with col1:
-        metric_card("Church Attendance", "attendance", "attendance")
+        metric_card("Church Attendance", "attendance", "attendance_card")
     with col2:
-        metric_card("New Guests", "guests", "guests")
+        metric_card("New Guests", "guests", "guests_card")
     with col3:
-        metric_card("Next Steps", "next_steps", "next_steps")
+        metric_card("Next Steps", "next_steps", "next_steps_card")
 
     st.divider()
 
-    # --- Coming Soon (non-functional)
     with st.container(border=True):
         st.markdown(
             """
-            <div style="opacity:0.8;">
-              <div style="font-size:20px; font-weight:800;">🩺 Church Health Dashboard</div>
-              <div style="color:#6b7280; margin-top:6px;">Coming Soon</div>
+            <div style="opacity:0.7;">
+              <h3 style="margin-bottom:6px;">🩺 Church Health Dashboard</h3>
+              <p style="margin-top:0; color: var(--kt-blue-gray); font-weight:600;">Coming Soon</p>
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
 
+
 # ============================================================
-# Placeholder Pages
+# Main
 # ============================================================
-elif st.session_state["page"] == "add_attendance":
-    st.subheader("➕ Add Church Attendance")
-    st.write("Blank page for now. We’ll build the form here next.")
-    st.button("⬅ Back to Dashboard", on_click=go_to, args=("dashboard",), use_container_width=False)
+def main() -> None:
+    configure_page()
+    render_layout()
 
-elif st.session_state["page"] == "add_guests":
-    st.subheader("➕ Add New Guest")
-    st.write("Blank page for now. We’ll build manual entry + scan card here.")
-    st.button("⬅ Back to Dashboard", on_click=go_to, args=("dashboard",), use_container_width=False)
 
-elif st.session_state["page"] == "add_next_steps":
-    st.subheader("➕ Add Next Steps")
-    st.write("Blank page for now. We’ll build checkboxes + entry here.")
-    st.button("⬅ Back to Dashboard", on_click=go_to, args=("dashboard",), use_container_width=False)
-
-else:
-    # Safety fallback
-    st.session_state["page"] = "dashboard"
-    st.rerun()
+if __name__ == "__main__":
+    main()
