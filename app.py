@@ -1,5 +1,4 @@
 from typing import Dict, Tuple
-
 import streamlit as st
 from PIL import Image
 
@@ -33,7 +32,7 @@ TIME_RANGES = [
 HERO_TIME_RANGE = TIME_RANGES[0]
 
 # ============================================================
-# Mock Data (swap later for Sheets)
+# Mock Data (replace later)
 # ============================================================
 MOCK_DATA: MetricStore = {
     "attendance": {
@@ -59,12 +58,15 @@ MOCK_DATA: MetricStore = {
     },
 }
 
-
 # ============================================================
-# Page + Global Styling
+# Page Config + Styling
 # ============================================================
-def configure_page() -> None:
-    st.set_page_config(page_title="KeepTrek Dashboard", layout="wide", page_icon="📊")
+def configure_page():
+    st.set_page_config(
+        page_title="KeepTrek Dashboard",
+        layout="wide",
+        page_icon="📊"
+    )
 
     st.markdown(
         f"""
@@ -77,186 +79,182 @@ def configure_page() -> None:
           --kt-muted: {PALETTE['muted']};
         }}
 
-        .block-container {{
-          padding-top: 1.25rem;
-          padding-bottom: 2.25rem;
-        }}
-
         body {{
-          background: linear-gradient(180deg, #f7fbfd 0%, #f4f8fa 45%, #fdfefd 100%);
+          background: linear-gradient(180deg, #f7fbfd, #fdfefd);
           color: var(--kt-navy);
         }}
 
-        h1, h2, h3, h4, h5, h6 {{
-          color: var(--kt-navy);
+        h1, h2, h3 {{
           letter-spacing: -0.02em;
         }}
 
         .kt-card-title {{
           margin-bottom: 6px;
-          color: var(--kt-navy);
         }}
 
-        /* Buttons: glossy-ish gradient */
         .stButton > button {{
           background: linear-gradient(135deg, var(--kt-teal), var(--kt-green));
           color: white;
-          border: none;
           border-radius: 8px;
           font-weight: 800;
-          box-shadow: 0 2px 8px rgba(5, 64, 99, 0.18);
+          border: none;
           padding: 0.6rem 0.9rem;
         }}
 
         .stButton > button:hover {{
           background: linear-gradient(135deg, var(--kt-green), var(--kt-teal));
-          box-shadow: 0 6px 14px rgba(5, 64, 99, 0.18);
-        }}
-
-        .stButton > button:focus {{
-          outline: 2px solid var(--kt-blue-gray);
         }}
         </style>
         """,
         unsafe_allow_html=True,
     )
 
+# ============================================================
+# Navigation
+# ============================================================
+if "page" not in st.session_state:
+    st.session_state.page = "dashboard"
+
+def go(page: str):
+    st.session_state.page = page
+    st.rerun()
 
 # ============================================================
 # Header
 # ============================================================
-def render_header() -> None:
+def render_header():
     logo = Image.open("assets/keeptrek_logo.png")
 
-    col1, col2 = st.columns([1.4, 6])
-    with col1:
-        st.image(logo, width=350)
-    with col2:
-        st.markdown(
-            """
-            <div style="line-height:1.05;">
-              <h1 style="margin-bottom:0;">KeepTrek</h1>
-              <p style="color: var(--kt-blue-gray); margin-top: 6px; font-weight:600;">
-                Measuring Meaningful Metrics
-              </p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
+    st.image(logo, width=700)
+    st.markdown(
+        """
+        <p style="text-align:center;
+                  font-size:18px;
+                  font-weight:600;
+                  color:var(--kt-blue-gray);
+                  margin-top:-10px;">
+            Measuring Meaningful Metrics
+        </p>
+        """,
+        unsafe_allow_html=True
+    )
 
 # ============================================================
 # Trend Helpers
 # ============================================================
-def trend_arrow(change: str) -> str:
-    normalized = (change or "").strip()
-    if normalized == "N/A":
+def trend_arrow(change):
+    if change == "N/A":
         return "—"
-    if normalized.startswith("-"):
-        return "↓"
-    if normalized.startswith("+"):
-        return "↑"
-    return "→"
+    return "↑" if change.startswith("+") else "↓"
 
-
-def trend_color(change: str) -> str:
-    normalized = (change or "").strip()
-    if normalized == "N/A":
+def trend_color(change):
+    if change == "N/A":
         return PALETTE["blue_gray"]
-    if normalized.startswith("-"):
-        return PALETTE["navy"]
-    if normalized.startswith("+"):
-        return PALETTE["green"]
-    return PALETTE["muted"]
-
+    return PALETTE["green"] if change.startswith("+") else PALETTE["navy"]
 
 # ============================================================
-# UI Rendering
+# Metric Card
 # ============================================================
-def render_metric_row(label: str, value: int, change: str) -> None:
-    st.markdown(
-        f"""
-        <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">
-          <div style="font-weight:700; color: var(--kt-navy);">{label}</div>
-          <div style="font-weight:800; color:{trend_color(change)};">
-            {value} &nbsp; {trend_arrow(change)} {change}
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def render_hero_metric(value: int, change: str) -> None:
-    st.markdown(
-        f"""
-        <div style="display:flex; align-items:baseline; gap:14px;">
-          <div style="font-size:52px; font-weight:900; line-height:1; color: var(--kt-navy);">
-            {value}
-          </div>
-          <div style="font-size:16px; font-weight:900; color:{trend_color(change)};">
-            {trend_arrow(change)} {change}
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def metric_card(title: str, data_key: str, key_prefix: str) -> None:
+def metric_card(title, key):
     with st.container(border=True):
         st.markdown(f"<h3 class='kt-card-title'>{title}</h3>", unsafe_allow_html=True)
 
-        hero_value, hero_change = MOCK_DATA[data_key][HERO_TIME_RANGE]
-        render_hero_metric(hero_value, hero_change)
+        hero_value, hero_change = MOCK_DATA[key][HERO_TIME_RANGE]
+
+        st.markdown(
+            f"""
+            <div style="display:flex; align-items:baseline; gap:14px;">
+              <div style="font-size:54px; font-weight:900;">
+                {hero_value}
+              </div>
+              <div style="font-size:16px; font-weight:800; color:{trend_color(hero_change)};">
+                {trend_arrow(hero_change)} {hero_change}
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
         st.divider()
 
         for label in TIME_RANGES[1:]:
-            value, change = MOCK_DATA[data_key][label]
-            render_metric_row(label, value, change)
+            v, c = MOCK_DATA[key][label]
+            st.markdown(
+                f"""
+                <div style="display:flex; justify-content:space-between;">
+                  <div>{label}</div>
+                  <div style="font-weight:700; color:{trend_color(c)};">
+                    {v} {trend_arrow(c)} {c}
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
         st.divider()
 
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.button("➕ Add New Data", key=f"{key_prefix}_add_new_data", use_container_width=True)
-        with col_b:
-            st.button("🔄 Refresh", key=f"{key_prefix}_refresh", use_container_width=True)
+        st.button(
+            "➕ Add New Data",
+            use_container_width=True,
+            on_click=go,
+            args=(f"add_{key}",)
+        )
 
-
-def render_layout() -> None:
+# ============================================================
+# Dashboard Page
+# ============================================================
+def dashboard():
     render_header()
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        metric_card("Church Attendance", "attendance", "attendance_card")
+        metric_card("Church Attendance", "attendance")
     with col2:
-        metric_card("New Guests", "guests", "guests_card")
+        metric_card("New Guests", "guests")
     with col3:
-        metric_card("Next Steps", "next_steps", "next_steps_card")
+        metric_card("Next Steps", "next_steps")
 
     st.divider()
 
     with st.container(border=True):
         st.markdown(
             """
-            <div style="opacity:0.7;">
-              <h3 style="margin-bottom:6px;">🩺 Church Health Dashboard</h3>
-              <p style="margin-top:0; color: var(--kt-blue-gray); font-weight:600;">Coming Soon</p>
-            </div>
+            <h3>🩺 Church Health Dashboard</h3>
+            <p style="color:var(--kt-blue-gray);">Coming Soon</p>
             """,
-            unsafe_allow_html=True,
+            unsafe_allow_html=True
         )
 
+# ============================================================
+# Add Pages (Blank for now)
+# ============================================================
+def add_page(title):
+    render_header()
+    st.subheader(title)
+    st.info("This page will be built next.")
+
+    st.button("⬅ Return Home", on_click=go, args=("dashboard",))
+
+    st.markdown("### Jump to another data entry")
+    col1, col2, col3 = st.columns(3)
+    col1.button("Attendance", on_click=go, args=("add_attendance",))
+    col2.button("Guests", on_click=go, args=("add_guests",))
+    col3.button("Next Steps", on_click=go, args=("add_next_steps",))
 
 # ============================================================
-# Main
+# Router
 # ============================================================
-def main() -> None:
+def main():
     configure_page()
-    render_layout()
 
+    if st.session_state.page == "dashboard":
+        dashboard()
+    elif st.session_state.page == "add_attendance":
+        add_page("➕ Add Church Attendance")
+    elif st.session_state.page == "add_guests":
+        add_page("➕ Add New Guest")
+    elif st.session_state.page == "add_next_steps":
+        add_page("➕ Add Next Steps")
 
 if __name__ == "__main__":
     main()
