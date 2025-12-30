@@ -3,22 +3,18 @@ import streamlit as st
 # =====================================
 # Page Config
 # =====================================
-st.set_page_config(
-    page_title="KeepTrek Dashboard",
-    layout="wide"
-)
+st.set_page_config(page_title="KeepTrek Dashboard", layout="wide")
 
 # =====================================
 # Header
 # =====================================
 st.markdown(
     """
-    <h1 style='margin-bottom: 0;'>KeepTrek</h1>
-    <p style='color: gray; margin-top: 0;'>Turning attendance into insight</p>
+    <h1 style="margin-bottom: 0;">KeepTrek</h1>
+    <p style="color: #6b7280; margin-top: 0;">Turning attendance into insight</p>
     """,
     unsafe_allow_html=True
 )
-
 st.divider()
 
 # =====================================
@@ -29,11 +25,13 @@ TIME_RANGES = [
     "Last 30 Days",
     "Last Quarter",
     "Last 90 Days",
-    "One Year Snapshot"
+    "One Year Snapshot",
 ]
 
 # =====================================
-# Mock Data (REPLACE LATER)
+# Mock Data (Replace later)
+# Each value = (number, change_string)
+# change_string examples: "+4.2%", "-1.3%", "N/A"
 # =====================================
 MOCK_DATA = {
     "attendance": {
@@ -56,50 +54,73 @@ MOCK_DATA = {
         "Last Quarter": (188, "+1%"),
         "Last 90 Days": (179, "N/A"),
         "One Year Snapshot": (742, "+4%"),
-    }
+    },
 }
 
 # =====================================
-# Helper UI Functions
+# Helpers
 # =====================================
-def trend_arrow(change):
+def trend_arrow(change: str) -> str:
     if change == "N/A":
         return "—"
-    if change.startswith("-"):
+    if change.strip().startswith("-"):
         return "↓"
-    return "↑"
+    if change.strip().startswith("+"):
+        return "↑"
+    return "→"
 
-def metric_card(title, data_key, key_prefix):
+def trend_color(change: str) -> str:
+    if change == "N/A":
+        return "#6b7280"  # gray
+    if change.strip().startswith("-"):
+        return "#dc2626"  # red
+    if change.strip().startswith("+"):
+        return "#16a34a"  # green
+    return "#6b7280"
+
+def metric_card(title: str, data_key: str, key_prefix: str):
     with st.container(border=True):
         st.subheader(title)
 
-        # --- Hero Metric ---
+        # Hero metric: Last Week
         value, change = MOCK_DATA[data_key]["Last Week"]
         st.markdown(
             f"""
-            <h1 style='margin-bottom: 0;'>{value}</h1>
-            <p style='color: {"green" if "+" in change else "red" if "-" in change else "gray"};'>
+            <div style="display:flex; align-items:baseline; gap:14px;">
+              <div style="font-size:46px; font-weight:800; line-height:1;">{value}</div>
+              <div style="font-size:16px; font-weight:700; color:{trend_color(change)};">
                 {trend_arrow(change)} {change}
-            </p>
+              </div>
+            </div>
             """,
             unsafe_allow_html=True
         )
 
         st.divider()
 
-        # --- Other Time Ranges ---
+        # Other time ranges
         for label in TIME_RANGES[1:]:
             v, c = MOCK_DATA[data_key][label]
-            st.write(f"**{label}:** {v}  {trend_arrow(c)} {c}")
+            st.markdown(
+                f"""
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0;">
+                  <div style="font-weight:600;">{label}</div>
+                  <div style="font-weight:700; color:{trend_color(c)};">
+                    {v} &nbsp; {trend_arrow(c)} {c}
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
         st.divider()
 
-        # --- Actions ---
+        # Actions (unique keys!)
         col_a, col_b = st.columns(2)
         with col_a:
             st.button(
                 "➕ Add New Data",
-                key=f"{key_prefix}_add",
+                key=f"{key_prefix}_add_new_data",
                 use_container_width=True
             )
         with col_b:
@@ -110,29 +131,31 @@ def metric_card(title, data_key, key_prefix):
             )
 
 # =====================================
-# Main Dashboard Layout
+# Layout
 # =====================================
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    metric_card("Church Attendance", "attendance", "attendance")
+    metric_card("Church Attendance", "attendance", "attendance_card")
 
 with col2:
-    metric_card("New Guests", "guests", "guests")
+    metric_card("New Guests", "guests", "guests_card")
 
 with col3:
-    metric_card("Next Steps", "next_steps", "next_steps")
+    metric_card("Next Steps", "next_steps", "next_steps_card")
 
 st.divider()
 
 # =====================================
-# Coming Soon Section
+# Coming Soon (non-functional)
 # =====================================
 with st.container(border=True):
     st.markdown(
         """
-        <h3 style='color: gray;'>🩺 Church Health Dashboard</h3>
-        <p style='color: gray;'>Coming Soon</p>
+        <div style="opacity:0.65;">
+          <h3 style="margin-bottom:6px;">🩺 Church Health Dashboard</h3>
+          <p style="margin-top:0; color:#6b7280;">Coming Soon</p>
+        </div>
         """,
         unsafe_allow_html=True
     )
