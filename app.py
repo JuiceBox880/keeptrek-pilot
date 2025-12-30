@@ -1,153 +1,133 @@
 import streamlit as st
-import gspread
-from google.oauth2.service_account import Credentials
-import pandas as pd
-import base64
-import os
-import json
-import re
-from openai import OpenAI
-from dotenv import load_dotenv
-from datetime import datetime, date
+from datetime import datetime
 
-# =========================
-# 🔐 Environment Setup
-# =========================
-load_dotenv()
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    st.error("❌ OPENAI_API_KEY missing.")
-    st.stop()
-
-client = OpenAI(api_key=api_key)
-
-# =========================
-# 🖥️ Page Setup
-# =========================
+# =====================================
+# Page Config
+# =====================================
 st.set_page_config(
-    page_title="KeepTrek Guest Tracker",
-    layout="wide",
-    page_icon="🛤️"
+    page_title="KeepTrek Dashboard",
+    layout="wide"
 )
-st.title("📋 KeepTrek Guest Tracker")
 
-tab1, tab2 = st.tabs(["📝 Guest Entry", "📋 View Guests"])
+# =====================================
+# Header
+# =====================================
+st.markdown(
+    """
+    <h1 style='margin-bottom: 0;'>KeepTrek</h1>
+    <p style='color: gray; margin-top: 0;'>Turning attendance into insight</p>
+    """,
+    unsafe_allow_html=True
+)
 
-# =========================
-# 🧠 Session State
-# =========================
-st.session_state.setdefault("processed_files", set())
-st.session_state.setdefault("manual_guest_queue", [])
+st.divider()
 
-# =========================
-# 📄 Google Sheets Setup
-# =========================
-scope = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
-creds = Credentials.from_service_account_file("creds.json", scopes=scope)
-gc = gspread.authorize(creds)
-sheet = gc.open("KeepTrek_TrackingData").sheet1
-
-# =========================
-# 🧱 Column Definition
-# =========================
-COLUMNS = [
-    "Name",
-    "Email",
-    "Phone",
-    "Age Group",
-    "First Visit Date",
-    "Get Baptized",
-    "Foundations Class",
-    "Community Group",
-    "Women's Ministry",
-    "Men's Bible Study",
-    "Coffee Crew",
-    "Parking Lot Team",
-    "Sanctuary Reset Team",
-    "Tech Assistant",
-    "Event Setup / Clean Up",
-    "Notes"
+# =====================================
+# Time Range Labels
+# =====================================
+TIME_RANGES = [
+    "Last Week",
+    "Last 30 Days",
+    "Last Quarter",
+    "Last 90 Days",
+    "One Year Snapshot"
 ]
 
-# Ensure headers exist
-existing_headers = sheet.row_values(1)
-if existing_headers != COLUMNS:
-    sheet.clear()
-    sheet.append_row(COLUMNS)
+# =====================================
+# Mock Data (REPLACE LATER)
+# =====================================
+MOCK_DATA = {
+    "attendance": {
+        "Last Week": (248, "+4.2%"),
+        "Last 30 Days": (982, "+1.1%"),
+        "Last Quarter": (2901, "-0.6%"),
+        "Last 90 Days": (2875, "N/A"),
+        "One Year Snapshot": (11234, "+6.4%"),
+    },
+    "guests": {
+        "Last Week": (21, "+10%"),
+        "Last 30 Days": (78, "+3%"),
+        "Last Quarter": (212, "-2%"),
+        "Last 90 Days": (201, "N/A"),
+        "One Year Snapshot": (865, "+8%"),
+    },
+    "next_steps": {
+        "Last Week": (14, "+5%"),
+        "Last 30 Days": (63, "+2%"),
+        "Last Quarter": (188, "+1%"),
+        "Last 90 Days": (179, "N/A"),
+        "One Year Snapshot": (742, "+4%"),
+    }
+}
 
-records = sheet.get_all_records()
-data = pd.DataFrame(records) if records else pd.DataFrame(columns=COLUMNS)
+# =====================================
+# Helper UI Functions
+# =====================================
+def trend_arrow(change):
+    if change == "N/A":
+        return "—"
+    if change.startswith("-"):
+        return "↓"
+    return "↑"
 
-# =========================
-# 📝 TAB 1: Manual Entry
-# =========================
-with tab1:
-    st.subheader("➕ Manually Add a New Guest")
+def metric_card(title, data_key):
+    with st.container(border=True):
+        st.subheader(title)
 
-    with st.form("manual_guest_form"):
-        name = st.text_input("👤 Name")
-        email = st.text_input("📧 Email")
-        phone = st.text_input("📱 Phone")
-
-        age_group = st.radio(
-            "🎂 Age Group",
-            ["Child", "Teen", "Adult"],
-            horizontal=True
+        # --- Hero Metric ---
+        value, change = MOCK_DATA[data_key]["Last Week"]
+        st.markdown(
+            f"""
+            <h1 style='margin-bottom: 0;'>{value}</h1>
+            <p style='color: {"green" if "+" in change else "red" if "-" in change else "gray"};'>
+                {trend_arrow(change)} {change}
+            </p>
+            """,
+            unsafe_allow_html=True
         )
 
-        st.markdown("### ✅ Areas of Interest")
+        st.divider()
 
-        checks = {
-            "Get Baptized": st.checkbox("Get Baptized"),
-            "Foundations Class": st.checkbox("Foundations Class"),
-            "Community Group": st.checkbox("Community Group"),
-            "Women's Ministry": st.checkbox("Women's Ministry"),
-            "Men's Bible Study": st.checkbox("Men's Bible Study"),
-            "Coffee Crew": st.checkbox("Coffee Crew"),
-            "Parking Lot Team": st.checkbox("Parking Lot Team"),
-            "Sanctuary Reset Team": st.checkbox("Sanctuary Reset Team"),
-            "Tech Assistant": st.checkbox("Tech Assistant"),
-            "Event Setup / Clean Up": st.checkbox("Event Setup / Clean Up"),
-        }
+        # --- Other Time Ranges ---
+        for label in TIME_RANGES[1:]:
+            v, c = MOCK_DATA[data_key][label]
+            st.write(
+                f"**{label}:** {v}  {trend_arrow(c)} {c}"
+            )
 
-        notes = st.text_area("🗒️ Notes / Comments")
+        st.divider()
 
-        submitted = st.form_submit_button("✅ Add Guest")
+        # --- Actions ---
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.button("➕ Add New Data", use_container_width=True)
+        with col_b:
+            st.button("🔄 Refresh", use_container_width=True)
 
-        if submitted:
-            if not name or not email:
-                st.warning("Please provide at least a name and email.")
-            else:
-                row = {
-                    "Name": name,
-                    "Email": email,
-                    "Phone": phone,
-                    "Age Group": age_group,
-                    "First Visit Date": date.today().strftime("%Y-%m-%d"),
-                    **{k: "✅" if v else "" for k, v in checks.items()},
-                    "Notes": notes
-                }
-                st.session_state.manual_guest_queue.append(row)
-                st.success(f"🕒 {name} added to queue.")
+# =====================================
+# Main Dashboard Layout
+# =====================================
+col1, col2, col3 = st.columns(3)
 
-    if st.session_state.manual_guest_queue:
-        st.subheader("📄 Ready to Submit")
-        st.dataframe(pd.DataFrame(st.session_state.manual_guest_queue), use_container_width=True)
+with col1:
+    metric_card("Church Attendance", "attendance")
 
-        if st.button("📤 Submit All to Google Sheet"):
-            for guest in st.session_state.manual_guest_queue:
-                sheet.append_row([guest.get(col, "") for col in COLUMNS])
-            st.success("✅ Guests added!")
-            st.session_state.manual_guest_queue.clear()
+with col2:
+    metric_card("New Guests", "guests")
 
-    # =========================
-    # 📸 Handwritten Card Upload
-    # =========================
-    st.markdown("---")
-    st.subheader("🧠 Upload a Handwritten Guest Card")
+with col3:
+    metric_card("Next Steps", "next_steps")
 
-    manual_review = st.toggle("🕵️ Manual Review Mode", value=True)
-    upl
+st.divider()
+
+# =====================================
+# Coming Soon Section
+# =====================================
+with st.container(border=True):
+    st.markdown(
+        """
+        <h3 style='color: gray;'>🩺 Church Health Dashboard</h3>
+        <p style='color: gray;'>Coming Soon</p>
+        """,
+        unsafe_allow_html=True
+    )
