@@ -130,14 +130,14 @@ def render_header() -> None:
 
     col1, col2 = st.columns([1.4, 6])
     with col1:
-        st.image(logo, width=200)
+        st.image(logo, width=350)
     with col2:
         st.markdown(
             """
             <div style="line-height:1.05;">
               <h1 style="margin-bottom:0;">KeepTrek</h1>
               <p style="color: var(--kt-blue-gray); margin-top: 6px; font-weight:600;">
-                Turning attendance into insight
+                Measuring Meaningful Metrics
               </p>
             </div>
             """,
