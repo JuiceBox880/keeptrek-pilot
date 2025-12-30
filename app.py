@@ -113,9 +113,9 @@ if "data" not in st.session_state:
 # =====================================
 # Header (all pages)
 # =====================================
-header_col1, header_col2 = st.columns([1, 6])
+header_col1, header_col2 = st.columns([2, 6])
 with header_col1:
-    st.image(logo, width=90)
+    st.image(logo, width=160)
 with header_col2:
     st.markdown(
         """
