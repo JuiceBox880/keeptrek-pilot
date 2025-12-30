@@ -1,5 +1,4 @@
 from typing import Dict, Tuple
-
 import streamlit as st
 from PIL import Image
 
@@ -33,7 +32,7 @@ TIME_RANGES = [
 HERO_TIME_RANGE = TIME_RANGES[0]
 
 # ============================================================
-# Mock Data (replace later)
+# Mock Data
 # ============================================================
 MOCK_DATA: MetricStore = {
     "attendance": {
@@ -60,7 +59,7 @@ MOCK_DATA: MetricStore = {
 }
 
 # ============================================================
-# Navigation
+# Navigation State
 # ============================================================
 if "page" not in st.session_state:
     st.session_state.page = "dashboard"
@@ -70,16 +69,11 @@ def go(page: str) -> None:
     st.session_state.page = page
     st.rerun()
 
-
 # ============================================================
 # Page Config + Styling
 # ============================================================
 def configure_page() -> None:
-    st.set_page_config(
-        page_title="KeepTrek Dashboard",
-        layout="wide",
-        page_icon="📊",
-    )
+    st.set_page_config(page_title="KeepTrek Dashboard", layout="wide", page_icon="📊")
 
     st.markdown(
         f"""
@@ -97,12 +91,9 @@ def configure_page() -> None:
           color: var(--kt-navy);
         }}
 
-        h1, h2, h3, h4 {{
+        h1, h2, h3 {{
           color: var(--kt-navy);
-        }}
-
-        .kt-card-title {{
-          margin-bottom: 6px;
+          letter-spacing: -0.02em;
         }}
 
         .stButton > button {{
@@ -111,19 +102,17 @@ def configure_page() -> None:
           border: none;
           border-radius: 8px;
           font-weight: 800;
-          padding: 0.65rem 0.95rem;
-          box-shadow: 0 2px 8px rgba(5, 64, 99, 0.18);
+          padding: 0.65rem 1rem;
+          box-shadow: 0 4px 10px rgba(5,64,99,.18);
         }}
 
         .stButton > button:hover {{
           background: linear-gradient(135deg, var(--kt-green), var(--kt-teal));
-          box-shadow: 0 6px 14px rgba(5, 64, 99, 0.18);
         }}
         </style>
         """,
         unsafe_allow_html=True,
     )
-
 
 # ============================================================
 # Header
@@ -136,93 +125,89 @@ def render_header() -> None:
         st.image(logo, width=720)
         st.markdown(
             """
-            <p style="
-                color: var(--kt-blue-gray);
-                margin-top: 6px;
-                font-weight: 700;
-                text-align: center;
-            ">
+            <p style="text-align:center; font-weight:700; color:var(--kt-blue-gray); margin-top:8px;">
                 Measuring Meaningful Metrics
             </p>
             """,
             unsafe_allow_html=True,
         )
 
-
 # ============================================================
 # Trend Helpers
 # ============================================================
 def trend_arrow(change: str) -> str:
-    normalized = (change or "").strip()
-    if normalized == "N/A":
+    if change == "N/A":
         return "—"
-    if normalized.startswith("-"):
+    if change.startswith("-"):
         return "↓"
-    if normalized.startswith("+"):
+    if change.startswith("+"):
         return "↑"
     return "→"
 
 
 def trend_color(change: str) -> str:
-    normalized = (change or "").strip()
-    if normalized == "N/A":
+    if change == "N/A":
         return PALETTE["blue_gray"]
-    if normalized.startswith("-"):
+    if change.startswith("-"):
         return PALETTE["navy"]
-    if normalized.startswith("+"):
+    if change.startswith("+"):
         return PALETTE["green"]
     return PALETTE["muted"]
 
-
 # ============================================================
-# Metric Card Rendering
+# Metric Card
 # ============================================================
-def render_metric_row(label: str, value: int, change: str) -> None:
-    st.markdown(
-        f"""
-        <div style="display:flex; justify-content:space-between; padding:4px 0;">
-          <div style="font-weight:600;">{label}</div>
-          <div style="font-weight:700; color:{trend_color(change)};">
-            {value} {trend_arrow(change)} {change}
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def render_hero_metric(value: int, change: str) -> None:
-    st.markdown(
-        f"""
-        <div style="display:flex; align-items:baseline; gap:14px;">
-          <div style="font-size:54px; font-weight:900;">{value}</div>
-          <div style="font-size:16px; font-weight:900; color:{trend_color(change)};">
-            {trend_arrow(change)} {change}
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 def metric_card(title: str, data_key: str) -> None:
     with st.container(border=True):
-        st.markdown(f"<h3 class='kt-card-title'>{title}</h3>", unsafe_allow_html=True)
+        st.subheader(title)
 
-        value, change = MOCK_DATA[data_key][HERO_TIME_RANGE]
-        render_hero_metric(value, change)
+        hero_value, hero_change = MOCK_DATA[data_key][HERO_TIME_RANGE]
+
+        st.markdown(
+            f"""
+            <div style="display:flex; align-items:baseline; gap:14px;">
+              <div style="font-size:54px; font-weight:900;">{hero_value}</div>
+              <div style="font-weight:900; color:{trend_color(hero_change)};">
+                {trend_arrow(hero_change)} {hero_change}
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
         st.divider()
 
         for label in TIME_RANGES[1:]:
             v, c = MOCK_DATA[data_key][label]
-            render_metric_row(label, v, c)
+            st.markdown(
+                f"""
+                <div style="display:flex; justify-content:space-between;">
+                  <div style="font-weight:700;">{label}</div>
+                  <div style="font-weight:800; color:{trend_color(c)};">
+                    {v} {trend_arrow(c)} {c}
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
         st.divider()
 
-        if st.button("➕ Add New Data", use_container_width=True):
-            go(f"add_{data_key}")
-
+        col1, col2 = st.columns(2)
+        with col1:
+            st.button(
+                "➕ Add New Data",
+                key=f"add_btn_{data_key}",
+                use_container_width=True,
+                on_click=go,
+                args=(f"add_{data_key}",),
+            )
+        with col2:
+            st.button(
+                "🔄 Refresh",
+                key=f"refresh_btn_{data_key}",
+                use_container_width=True,
+            )
 
 # ============================================================
 # Dashboard Page
@@ -244,64 +229,29 @@ def dashboard() -> None:
         st.markdown(
             """
             <h3>🩺 Church Health Dashboard</h3>
-            <p style="color: var(--kt-blue-gray); font-weight:600;">
-                Coming Soon
-            </p>
+            <p style="color:var(--kt-blue-gray); font-weight:600;">Coming Soon</p>
             """,
             unsafe_allow_html=True,
         )
 
-
 # ============================================================
 # Add Pages
 # ============================================================
-ADD_PAGE_FIELDS = {
-    "attendance": [
-        ("Service date", "date"),
-        ("Total attendance", "number"),
-        ("Adults", "number"),
-        ("Students", "number"),
-        ("Notes", "text"),
-    ],
-    "guests": [
-        ("Visit date", "date"),
-        ("New guest count", "number"),
-        ("Follow-up scheduled?", "checkbox"),
-        ("Notes", "text"),
-    ],
-    "next_steps": [
-        ("Date", "date"),
-        ("Commitments", "number"),
-        ("Baptisms", "number"),
-        ("First-time decisions", "number"),
-        ("Notes", "text"),
-    ],
-}
-
-
-def add_page(title: str, key: str) -> None:
+def add_page(title: str) -> None:
     render_header()
     st.subheader(title)
 
-    with st.form(f"{key}_form"):
-        for label, field_type in ADD_PAGE_FIELDS[key]:
-            if field_type == "date":
-                st.date_input(label)
-            elif field_type == "number":
-                st.number_input(label, min_value=0, step=1)
-            elif field_type == "checkbox":
-                st.checkbox(label)
-            else:
-                st.text_area(label)
-
+    with st.form("entry_form"):
+        st.date_input("Date")
+        st.number_input("Count", min_value=0, step=1)
+        st.text_area("Notes")
         submitted = st.form_submit_button("Save Entry", use_container_width=True)
 
     if submitted:
-        st.success("Entry saved (mock).")
+        st.success("Saved (mock). Data hookup coming soon.")
 
     st.divider()
-    st.button("⬅ Return Home", use_container_width=True, on_click=go, args=("dashboard",))
-
+    st.button("⬅ Return Home", on_click=go, args=("dashboard",), use_container_width=True)
 
 # ============================================================
 # Router
@@ -313,12 +263,14 @@ def main() -> None:
     if page == "dashboard":
         dashboard()
     elif page == "add_attendance":
-        add_page("➕ Add Church Attendance", "attendance")
+        add_page("➕ Add Church Attendance")
     elif page == "add_guests":
-        add_page("➕ Add New Guest", "guests")
+        add_page("➕ Add New Guests")
     elif page == "add_next_steps":
-        add_page("➕ Add Next Steps", "next_steps")
+        add_page("➕ Add Next Steps")
 
-
+# ============================================================
+# Entry
+# ============================================================
 if __name__ == "__main__":
     main()
