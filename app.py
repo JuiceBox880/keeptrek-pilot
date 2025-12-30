@@ -1,4 +1,5 @@
 import streamlit as st
+from PIL import Image
 
 # =====================================
 # Page Config
@@ -6,16 +7,25 @@ import streamlit as st
 st.set_page_config(page_title="KeepTrek Dashboard", layout="wide")
 
 # =====================================
-# Header
+# Logo Header
 # =====================================
-st.markdown(
-    """
-    <h1 style="margin-bottom: 0;">KeepTrek</h1>
-    <p style="color: #6b7280; margin-top: 0;">Turning attendance into insight</p>
-    """,
-    unsafe_allow_html=True
-)
-st.divider()
+logo = Image.open("assets/keeptrek_logo.png")
+
+header_col1, header_col2 = st.columns([1, 5])
+
+with header_col1:
+    st.image(logo, width=90)
+
+with header_col2:
+    st.markdown(
+        """
+        <h1 style="margin-bottom: 0;">KeepTrek</h1>
+        <p style="color: #6b7280; margin-top: 0;">
+            Turning attendance into insight
+        </p>
+        """,
+        unsafe_allow_html=True
+    )
 
 # =====================================
 # Time Range Labels
