@@ -1,46 +1,34 @@
-from __future__ import annotations
-
-from dataclasses import dataclass
-from datetime import date, datetime, timedelta
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 
 import pandas as pd
 import streamlit as st
 from PIL import Image
-
 import gspread
-from google.oauth2 import service_account
-
+from google.oauth2.service_account import Credentials
 
 # ============================================================
 # CONFIG
 # ============================================================
-SHEET_ID = "1sfbjEtd-dCZBQPBHG04Rqsxg2hNc24OmUM1cQnQKiIk"
-
+SHEET_NAME = "KeepTrek_Data"
 TAB_ATTENDANCE = "Attendance"
-TAB_GUESTS = "New Guests"
-TAB_NEXT_STEPS = "Next Steps"
-
-LOGO_PATH = "assets/keeptrek_logo.png"
-
-
-PALETTE = {
-    "navy": "#054063",
-    "teal": "#179171",
-    "green": "#34a94d",
-    "blue_gray": "#47919e",
-    "muted": "#6b7280",
-    "bg_top": "#f7fbfd",
-    "bg_mid": "#f4f8fa",
-    "bg_bot": "#fdfefd",
-}
-
+TAB_GUESTS = "New_Guests"
+TAB_NEXT_STEPS = "Next_Steps"
 
 # ============================================================
-# PAGE ROUTER
+# TYPES
 # ============================================================
+MetricValue = Tuple[int, str]
+
+# ============================================================
+# NAVIGATION
+# ============================================================
+PAGE_DASHBOARD = "dashboard"
+PAGE_ADD_ATTENDANCE = "add_attendance"
+PAGE_ADD_GUESTS = "add_guests"
+PAGE_ADD_NEXT_STEPS = "add_next_steps"
+
 if "page" not in st.session_state:
-    st.session_state.page = "dashboard"
+    st.session_state.page = PAGE_DASHBOARD
 
 
 def go(page: str) -> None:
@@ -49,415 +37,257 @@ def go(page: str) -> None:
 
 
 # ============================================================
-# UI / STYLE
+# PAGE SETUP + STYLING
 # ============================================================
-def configure_page() -> None:
-    st.set_page_config(page_title="KeepTrek Dashboard", layout="wide", page_icon="📊")
+st.set_page_config(page_title="KeepTrek Dashboard", layout="wide", page_icon="📊")
 
-    st.markdown(
-        f"""
-        <style>
-        :root {{
-          --kt-navy: {PALETTE['navy']};
-          --kt-teal: {PALETTE['teal']};
-          --kt-green: {PALETTE['green']};
-          --kt-blue-gray: {PALETTE['blue_gray']};
-          --kt-muted: {PALETTE['muted']};
-        }}
+st.markdown(
+    """
+    <style>
+    body {
+        background: linear-gradient(180deg, #f7fbfd, #fdfefe);
+    }
+    h1, h2, h3 {
+        color: #054063;
+    }
+    .stButton>button {
+        background: linear-gradient(135deg, #179171, #34a94d);
+        color: white;
+        font-weight: 800;
+        border-radius: 8px;
+        border: none;
+        padding: 0.6rem 0.9rem;
+    }
+    .stButton>button:hover {
+        background: linear-gradient(135deg, #34a94d, #179171);
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-        body {{
-          background: linear-gradient(180deg, {PALETTE['bg_top']} 0%, {PALETTE['bg_mid']} 45%, {PALETTE['bg_bot']} 100%);
-          color: var(--kt-navy);
-        }}
-
-        h1, h2, h3, h4, h5, h6 {{
-          color: var(--kt-navy);
-          letter-spacing: -0.02em;
-        }}
-
-        .block-container {{
-          padding-top: 1.2rem;
-          padding-bottom: 2.2rem;
-        }}
-
-        .kt-card-title {{
-          margin-bottom: 6px;
-          color: var(--kt-navy);
-        }}
-
-        .kt-subtle {{
-          color: var(--kt-blue-gray);
-          font-weight: 700;
-        }}
-
-        .stButton > button {{
-          background: linear-gradient(135deg, var(--kt-teal), var(--kt-green));
-          color: white;
-          border: none;
-          border-radius: 10px;
-          font-weight: 900;
-          box-shadow: 0 2px 10px rgba(5, 64, 99, 0.18);
-          padding: 0.65rem 0.95rem;
-        }}
-
-        .stButton > button:hover {{
-          background: linear-gradient(135deg, var(--kt-green), var(--kt-teal));
-          box-shadow: 0 6px 16px rgba(5, 64, 99, 0.18);
-        }}
-
-        .stButton > button:focus {{
-          outline: 2px solid var(--kt-blue-gray);
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
+# ============================================================
+# GOOGLE SHEETS CONNECTION
+# ============================================================
+def _credentials() -> Credentials:
+    return Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=["https://www.googleapis.com/auth/spreadsheets"],
     )
 
 
-def render_header() -> None:
-    spacer_left, center, spacer_right = st.columns([1, 2, 1])
-
-    with center:
-        try:
-            logo = Image.open(LOGO_PATH)
-            st.image(logo, width=720)  # big logo
-        except Exception:
-            st.markdown("### KeepTrek (logo missing)")
-
-        st.markdown(
-            """
-            <p class="kt-subtle" style="text-align:center; margin-top: 6px;">
-              Measuring Meaningful Metrics
-            </p>
-            """,
-            unsafe_allow_html=True,
-        )
+@st.cache_resource
+def get_gsheet() -> gspread.Spreadsheet:
+    client = gspread.authorize(_credentials())
+    return client.open(SHEET_NAME)
 
 
-# ============================================================
-# GOOGLE SHEETS CONNECT
-# ============================================================
-def get_gspread_client() -> gspread.Client:
-    creds = service_account.Credentials.from_service_account_info(
-        dict(st.secrets["google"]),
-        scopes=[
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ],
-    )
-    return gspread.authorize(creds)
+sheet = get_gsheet()
 
 
-@st.cache_data(ttl=60)
-def load_tab_as_df(sheet_id: str, tab_name: str) -> pd.DataFrame:
-    gc = get_gspread_client()
-    sh = gc.open_by_key(sheet_id)
-    ws = sh.worksheet(tab_name)
-
-    values = ws.get_all_values()
-    if not values or len(values) < 2:
+def load_tab(tab_name: str) -> pd.DataFrame:
+    try:
+        worksheet = sheet.worksheet(tab_name)
+        data = worksheet.get_all_records()
+        return pd.DataFrame(data)
+    except Exception:
         return pd.DataFrame()
 
-    headers = values[0]
-    rows = values[1:]
-    df = pd.DataFrame(rows, columns=headers)
-    return df
 
-
-# ============================================================
-# METRICS LOGIC
-# ============================================================
-@dataclass(frozen=True)
-class Window:
-    label: str
-    days: int
-
-
-WINDOWS = [
-    Window("Last Week", 7),
-    Window("Last 30 Days", 30),
-    Window("Last Quarter", 90),   # simple rolling quarter
-    Window("Last 90 Days", 90),
-    Window("One Year Snapshot", 365),
-]
-
-
-def _parse_date_series(s: pd.Series) -> pd.Series:
-    # Accepts "YYYY-MM-DD" mostly, but tries hard.
-    return pd.to_datetime(s, errors="coerce").dt.date
-
-
-def _trend_pct(current: float, previous: float) -> str:
-    if previous is None or previous == 0:
-        return "N/A"
-    pct = ((current - previous) / previous) * 100.0
-    sign = "+" if pct >= 0 else ""
-    return f"{sign}{pct:.1f}%"
-
-
-def _trend_arrow(change: str) -> str:
-    c = (change or "").strip()
-    if c == "N/A":
-        return "—"
-    if c.startswith("-"):
-        return "↓"
-    if c.startswith("+"):
-        return "↑"
-    return "→"
-
-
-def _trend_color(change: str) -> str:
-    c = (change or "").strip()
-    if c == "N/A":
-        return PALETTE["blue_gray"]
-    if c.startswith("-"):
-        return PALETTE["navy"]
-    if c.startswith("+"):
-        return PALETTE["green"]
-    return PALETTE["muted"]
-
-
-def compute_attendance_metrics(df: pd.DataFrame) -> Dict[str, Tuple[int, str]]:
-    """
-    Expected Attendance columns:
-      - Date
-      - Service (or Service Name)
-      - Attendance (numeric)
-    """
-    if df.empty:
-        return {w.label: (0, "N/A") for w in WINDOWS}
-
-    # Try common column names
-    date_col = next((c for c in df.columns if c.strip().lower() in ["date", "service date"]), None)
-    att_col = next((c for c in df.columns if c.strip().lower() in ["attendance", "total attendance"]), None)
-
-    if not date_col or not att_col:
-        return {w.label: (0, "N/A") for w in WINDOWS}
-
-    df = df.copy()
-    df[date_col] = _parse_date_series(df[date_col])
-    df[att_col] = pd.to_numeric(df[att_col], errors="coerce").fillna(0)
-
-    today = date.today()
-    out: Dict[str, Tuple[int, str]] = {}
-
-    for w in WINDOWS:
-        start = today - timedelta(days=w.days)
-        prev_start = today - timedelta(days=w.days * 2)
-        prev_end = start
-
-        cur = df[(df[date_col] >= start) & (df[date_col] <= today)][att_col].sum()
-        prev = df[(df[date_col] >= prev_start) & (df[date_col] < prev_end)][att_col].sum()
-
-        change = "N/A" if prev == 0 else _trend_pct(cur, prev)
-        out[w.label] = (int(cur), change)
-
-    return out
-
-
-def compute_guest_metrics(df: pd.DataFrame) -> Dict[str, Tuple[int, str]]:
-    """
-    Expected Guests columns include a date column:
-      - Visit Date (or Date)
-    Metric = number of guest rows in window
-    """
-    if df.empty:
-        return {w.label: (0, "N/A") for w in WINDOWS}
-
-    date_col = next((c for c in df.columns if c.strip().lower() in ["visit date", "date"]), None)
-    if not date_col:
-        return {w.label: (0, "N/A") for w in WINDOWS}
-
-    df = df.copy()
-    df[date_col] = _parse_date_series(df[date_col])
-
-    today = date.today()
-    out: Dict[str, Tuple[int, str]] = {}
-
-    for w in WINDOWS:
-        start = today - timedelta(days=w.days)
-        prev_start = today - timedelta(days=w.days * 2)
-        prev_end = start
-
-        cur = df[(df[date_col] >= start) & (df[date_col] <= today)].shape[0]
-        prev = df[(df[date_col] >= prev_start) & (df[date_col] < prev_end)].shape[0]
-
-        change = "N/A" if prev == 0 else _trend_pct(cur, prev)
-        out[w.label] = (int(cur), change)
-
-    return out
-
-
-def compute_next_steps_metrics(df: pd.DataFrame) -> Dict[str, Tuple[int, str]]:
-    """
-    Expected Next Steps columns include:
-      - Date
-    Metric = number of rows in window (simple) OR count of checked boxes.
-    For now: rows count (commitments).
-    """
-    if df.empty:
-        return {w.label: (0, "N/A") for w in WINDOWS}
-
-    date_col = next((c for c in df.columns if c.strip().lower() in ["date", "service date", "visit date"]), None)
-    if not date_col:
-        return {w.label: (0, "N/A") for w in WINDOWS}
-
-    df = df.copy()
-    df[date_col] = _parse_date_series(df[date_col])
-
-    today = date.today()
-    out: Dict[str, Tuple[int, str]] = {}
-
-    for w in WINDOWS:
-        start = today - timedelta(days=w.days)
-        prev_start = today - timedelta(days=w.days * 2)
-        prev_end = start
-
-        cur = df[(df[date_col] >= start) & (df[date_col] <= today)].shape[0]
-        prev = df[(df[date_col] >= prev_start) & (df[date_col] < prev_end)].shape[0]
-
-        change = "N/A" if prev == 0 else _trend_pct(cur, prev)
-        out[w.label] = (int(cur), change)
-
-    return out
-
+attendance_df = load_tab(TAB_ATTENDANCE)
+guests_df = load_tab(TAB_GUESTS)
+next_steps_df = load_tab(TAB_NEXT_STEPS)
 
 # ============================================================
-# CARDS
+# METRIC CALCULATIONS
 # ============================================================
-def render_hero_metric(value: int, change: str) -> None:
+def safe_sum(df: pd.DataFrame, col: str) -> int:
+    return int(df[col].sum()) if col in df.columns else 0
+
+
+attendance_total = safe_sum(attendance_df, "Attendance Count")
+new_guest_total = len(guests_df)
+next_steps_total = len(next_steps_df)
+
+# ============================================================
+# HEADER
+# ============================================================
+logo = Image.open("assets/keeptrek_logo.png")
+
+spacer, center, spacer2 = st.columns([1, 2, 1])
+with center:
+    st.image(logo, width=720)
     st.markdown(
-        f"""
-        <div style="display:flex; align-items:baseline; gap:14px;">
-          <div style="font-size:54px; font-weight:950; line-height:1; color: var(--kt-navy);">{value}</div>
-          <div style="font-size:16px; font-weight:950; color:{_trend_color(change)};">
-            {_trend_arrow(change)} {change}
-          </div>
-        </div>
-        """,
+        "<p style='text-align:center;color:#47919e;font-weight:700;'>"
+        "Measuring Meaningful Metrics</p>",
         unsafe_allow_html=True,
     )
 
-
-def render_metric_row(label: str, value: int, change: str) -> None:
-    st.markdown(
-        f"""
-        <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">
-          <div style="font-weight:800; color: var(--kt-navy);">{label}</div>
-          <div style="font-weight:900; color:{_trend_color(change)};">
-            {value} &nbsp; {_trend_arrow(change)} {change}
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def metric_card(title: str, metrics: Dict[str, Tuple[int, str]], add_page: str, key_prefix: str) -> None:
-    with st.container(border=True):
-        st.markdown(f"<h3 class='kt-card-title'>{title}</h3>", unsafe_allow_html=True)
-
-        hero_value, hero_change = metrics.get("Last Week", (0, "N/A"))
-        render_hero_metric(hero_value, hero_change)
-
-        st.divider()
-
-        for w in WINDOWS[1:]:
-            v, c = metrics.get(w.label, (0, "N/A"))
-            render_metric_row(w.label, v, c)
-
-        st.divider()
-
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.button(
-                "➕ Add New Data",
-                use_container_width=True,
-                key=f"{key_prefix}_add",
-                on_click=go,
-                args=(add_page,),
-            )
-        with col_b:
-            if st.button("🔄 Refresh", use_container_width=True, key=f"{key_prefix}_refresh"):
-                st.cache_data.clear()
-                st.rerun()
-
-
 # ============================================================
-# PAGES
+# DASHBOARD CARDS
 # ============================================================
-def dashboard_page() -> None:
-    render_header()
-
-    # Load data
-    df_att = load_tab_as_df(SHEET_ID, TAB_ATTENDANCE)
-    df_gst = load_tab_as_df(SHEET_ID, TAB_GUESTS)
-    df_nst = load_tab_as_df(SHEET_ID, TAB_NEXT_STEPS)
-
-    att_metrics = compute_attendance_metrics(df_att)
-    gst_metrics = compute_guest_metrics(df_gst)
-    nst_metrics = compute_next_steps_metrics(df_nst)
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        metric_card("Church Attendance", att_metrics, "add_attendance", "attendance")
-    with col2:
-        metric_card("New Guests", gst_metrics, "add_guests", "guests")
-    with col3:
-        metric_card("Next Steps", nst_metrics, "add_next_steps", "next_steps")
-
-    st.divider()
-
+def dashboard_card(title: str, value: int, caption: str, add_page: str) -> None:
     with st.container(border=True):
-        st.markdown(
-            """
-            <div style="opacity:0.75;">
-              <h3 style="margin-bottom:6px;">🩺 Church Health Dashboard</h3>
-              <p style="margin-top:0; color:var(--kt-blue-gray); font-weight:700;">Coming Soon</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
+        st.subheader(title)
+        st.markdown(f"<h1>{value}</h1>", unsafe_allow_html=True)
+        st.caption(caption)
+        st.button(
+            "➕ Add New Data",
+            use_container_width=True,
+            on_click=go,
+            args=(add_page,),
         )
 
 
-def stub_add_page(title: str, description: str) -> None:
-    render_header()
-    st.subheader(title)
-    st.write(description)
+col1, col2, col3 = st.columns(3)
 
-    st.markdown("---")
-    st.button("⬅ Return Home", use_container_width=True, on_click=go, args=("dashboard",))
+with col1:
+    dashboard_card(
+        "Church Attendance",
+        attendance_total,
+        "Total attendance (all services)",
+        PAGE_ADD_ATTENDANCE,
+    )
 
-    st.markdown("### Quick Jump")
-    c1, c2, c3 = st.columns(3)
-    c1.button("Attendance", use_container_width=True, on_click=go, args=("add_attendance",), key=f"jump_att_{title}")
-    c2.button("Guests", use_container_width=True, on_click=go, args=("add_guests",), key=f"jump_gst_{title}")
-    c3.button("Next Steps", use_container_width=True, on_click=go, args=("add_next_steps",), key=f"jump_nst_{title}")
+with col2:
+    dashboard_card(
+        "New Guests",
+        new_guest_total,
+        "Total new guests",
+        PAGE_ADD_GUESTS,
+    )
 
+with col3:
+    dashboard_card(
+        "Next Steps",
+        next_steps_total,
+        "People taking next steps",
+        PAGE_ADD_NEXT_STEPS,
+    )
 
-def router() -> None:
-    page = st.session_state.page
+st.divider()
 
-    if page == "dashboard":
-        dashboard_page()
-    elif page == "add_attendance":
-        stub_add_page("➕ Add Church Attendance", "Placeholder page. We’ll build the attendance form next.")
-    elif page == "add_guests":
-        stub_add_page("➕ Add New Guest", "Placeholder page. We’ll build the guest form + scan flow next.")
-    elif page == "add_next_steps":
-        stub_add_page("➕ Add Next Steps", "Placeholder page. We’ll build next steps + checkboxes next.")
-    else:
-        st.session_state.page = "dashboard"
+# ============================================================
+# FORMS
+# ============================================================
+def append_row(tab_name: str, row: Dict[str, str]) -> None:
+    try:
+        worksheet = sheet.worksheet(tab_name)
+        worksheet.append_row(list(row.values()))
+        st.success("Saved!")
         st.rerun()
+    except Exception as exc:
+        st.error(f"Unable to save data: {exc}")
 
+
+def add_attendance() -> None:
+    st.subheader("➕ Add Church Attendance")
+    with st.form("attendance_form"):
+        date = st.date_input("Service Date")
+        count = st.number_input("Attendance Count", min_value=0, step=1)
+        submitted = st.form_submit_button("Save Attendance")
+        if submitted:
+            append_row(
+                TAB_ATTENDANCE,
+                {
+                    "Service Date": str(date),
+                    "Attendance Count": int(count),
+                },
+            )
+
+
+def add_guest() -> None:
+    st.subheader("➕ Add New Guest")
+    with st.form("guest_form"):
+        name = st.text_input("Guest Name")
+        visit_date = st.date_input("Visit Date")
+        contact = st.text_input("Contact Info (optional)")
+        submitted = st.form_submit_button("Save Guest")
+        if submitted:
+            append_row(
+                TAB_GUESTS,
+                {
+                    "Guest Name": name,
+                    "Visit Date": str(visit_date),
+                    "Contact Info": contact,
+                },
+            )
+
+
+def add_next_step() -> None:
+    st.subheader("➕ Add Next Step")
+    with st.form("next_steps_form"):
+        name = st.text_input("Name")
+        step = st.text_input("Next Step")
+        date = st.date_input("Date")
+        submitted = st.form_submit_button("Save Next Step")
+        if submitted:
+            append_row(
+                TAB_NEXT_STEPS,
+                {
+                    "Name": name,
+                    "Next Step": step,
+                    "Date": str(date),
+                },
+            )
 
 # ============================================================
-# MAIN
+# DATA PREVIEWS
 # ============================================================
-def main() -> None:
-    configure_page()
-    router()
+def render_previews() -> None:
+    with st.container(border=True):
+        st.subheader("📊 Attendance Records")
+        if attendance_df.empty:
+            st.info("No attendance data yet.")
+        else:
+            st.dataframe(attendance_df, use_container_width=True)
+
+    with st.container(border=True):
+        st.subheader("👋 New Guests")
+        if guests_df.empty:
+            st.info("No guest data yet.")
+        else:
+            st.dataframe(guests_df, use_container_width=True)
+
+    with st.container(border=True):
+        st.subheader("➡️ Next Steps")
+        if next_steps_df.empty:
+            st.info("No next steps data yet.")
+        else:
+            st.dataframe(next_steps_df, use_container_width=True)
+
+# ============================================================
+# ROUTER
+# ============================================================
+def render_nav_buttons() -> None:
+    st.markdown("### Jump to another data entry")
+    col1, col2, col3 = st.columns(3)
+    col1.button("Attendance", on_click=go, args=(PAGE_ADD_ATTENDANCE,))
+    col2.button("Guests", on_click=go, args=(PAGE_ADD_GUESTS,))
+    col3.button("Next Steps", on_click=go, args=(PAGE_ADD_NEXT_STEPS,))
 
 
-if __name__ == "__main__":
-    main()
+def render_body() -> None:
+    if st.session_state.page == PAGE_DASHBOARD:
+        render_previews()
+    elif st.session_state.page == PAGE_ADD_ATTENDANCE:
+        add_attendance()
+        render_nav_buttons()
+    elif st.session_state.page == PAGE_ADD_GUESTS:
+        add_guest()
+        render_nav_buttons()
+    elif st.session_state.page == PAGE_ADD_NEXT_STEPS:
+        add_next_step()
+        render_nav_buttons()
+
+
+def render_footer() -> None:
+    st.markdown(
+        "<p style='text-align:center;color:#6b7280;font-weight:600;'>"
+        "KeepTrek • Church Metrics Made Meaningful</p>",
+        unsafe_allow_html=True,
+    )
+
+
+render_body()
+render_footer()
