@@ -1,8 +1,10 @@
 import streamlit as st
 import pandas as pd
-from dataclasses import dataclass, field
 import gspread
 from google.oauth2.service_account import Credentials
+from typing import Dict
+from dataclasses import dataclass, field
+from typing import Optional, List, Dict, Tuple
 
 # =========================
 # GOOGLE AUTH HELPERS
