@@ -65,9 +65,11 @@ PLACEHOLDER = {
 st.set_page_config(page_title="KeepTrek Dashboard (Placeholder)", layout="wide", page_icon="📊")
 
 # ============================================================
-# SIMPLE ROUTER (Dashboard -> Next Steps page)
+# SIMPLE ROUTER
 # ============================================================
 PAGE_DASHBOARD = "dashboard"
+PAGE_ATTENDANCE = "attendance_page"
+PAGE_GUESTS = "guests_page"
 PAGE_NEXT_STEPS = "next_steps_page"
 
 if "page" not in st.session_state:
@@ -241,7 +243,36 @@ def render_header():
     st.divider()
 
 # ============================================================
-# UI COMPONENTS
+# SMALL HELPER: top stats card used by all secondary pages
+# ============================================================
+def render_snapshot_block(key: str, title_override: str | None = None):
+    data = PLACEHOLDER[key]
+    title = title_override or f"{data['title']} Snapshot"
+
+    with st.container(border=True):
+        st.markdown(f"<div class='kt-card-title'>{title}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kt-hero-number'>{data['hero']}</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div class='kt-hero-sub'>{data['caption']} &nbsp; • &nbsp; "
+            f"<span class='kt-chip'>↑ {data['trend']}</span></div>",
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+        for label in TIME_RANGES[1:]:
+            val = data["ranges"].get(label, "—")
+            st.markdown(
+                f"""
+                <div class="kt-row">
+                  <div class="kt-row-label">{label}</div>
+                  <div class="kt-row-value">{val}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+# ============================================================
+# DASHBOARD CARD
 # ============================================================
 def metric_card(card_key: str):
     data = PLACEHOLDER[card_key]
@@ -271,67 +302,26 @@ def metric_card(card_key: str):
 
         st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
 
+        page_map = {
+            "attendance": PAGE_ATTENDANCE,
+            "guests": PAGE_GUESTS,
+            "next_steps": PAGE_NEXT_STEPS,
+        }
+
         col_a, col_b = st.columns(2)
         with col_a:
-            if card_key == "next_steps":
-                st.button(
-                    "➕ Add New Data",
-                    use_container_width=True,
-                    key=f"{card_key}_add",
-                    on_click=go,
-                    args=(PAGE_NEXT_STEPS,),
-                )
-            else:
-                st.button("➕ Add New Data", use_container_width=True, key=f"{card_key}_add")
-
+            st.button(
+                "➕ Add New Data",
+                use_container_width=True,
+                key=f"{card_key}_add",
+                on_click=go,
+                args=(page_map[card_key],),
+            )
         with col_b:
             st.button("🔄 Refresh", use_container_width=True, key=f"{card_key}_refresh")
 
-def render_next_steps_page():
-    render_header()
-
-    # Top stats (same data as dashboard)
-    with st.container(border=True):
-        st.markdown("<div class='kt-card-title'>Next Steps Snapshot</div>", unsafe_allow_html=True)
-
-        data = PLACEHOLDER["next_steps"]
-        st.markdown(f"<div class='kt-hero-number'>{data['hero']}</div>", unsafe_allow_html=True)
-        st.markdown(
-            f"<div class='kt-hero-sub'>{data['caption']} &nbsp; • &nbsp; "
-            f"<span class='kt-chip'>↑ {data['trend']}</span></div>",
-            unsafe_allow_html=True,
-        )
-
-        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
-        for label in TIME_RANGES[1:]:
-            val = data["ranges"].get(label, "—")
-            st.markdown(
-                f"""
-                <div class="kt-row">
-                  <div class="kt-row-label">{label}</div>
-                  <div class="kt-row-value">{val}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-    st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
-
-    # Upload Card (non-functional placeholder)
-    with st.container(border=True):
-        st.markdown("<div class='kt-card-title'>Add Next Steps</div>", unsafe_allow_html=True)
-        st.caption("Placeholder for OCR + form entry. We’ll wire this up later.")
-        st.button("📷 Upload Card Here (Coming Soon)", use_container_width=True, key="ns_upload_placeholder")
-
-        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
-
-        # Home button
-        st.markdown("<div class='kt-ghost'>", unsafe_allow_html=True)
-        st.button("⬅ Return to Dashboard", use_container_width=True, key="ns_back", on_click=go, args=(PAGE_DASHBOARD,))
-        st.markdown("</div>", unsafe_allow_html=True)
-
 # ============================================================
-# ROUTED PAGES
+# PAGES
 # ============================================================
 def render_dashboard():
     render_header()
@@ -359,13 +349,69 @@ def render_dashboard():
 
     st.markdown("<div class='kt-footer'>KeepTrek • Church Metrics Made Meaningful</div>", unsafe_allow_html=True)
 
+def render_attendance_page():
+    render_header()
+    render_snapshot_block("attendance")
+
+    st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+
+    with st.container(border=True):
+        st.markdown("<div class='kt-card-title'>Add Attendance</div>", unsafe_allow_html=True)
+        st.caption("Placeholder page. Later we’ll add the real form + write to Sheets.")
+        st.button("📝 Enter Attendance (Coming Soon)", use_container_width=True, key="att_form_placeholder")
+        st.button("📷 Upload Attendance Sheet (Coming Soon)", use_container_width=True, key="att_upload_placeholder")
+
+        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+
+        st.markdown("<div class='kt-ghost'>", unsafe_allow_html=True)
+        st.button("⬅ Return to Dashboard", use_container_width=True, key="att_back", on_click=go, args=(PAGE_DASHBOARD,))
+        st.markdown("</div>", unsafe_allow_html=True)
+
+def render_guests_page():
+    render_header()
+    render_snapshot_block("guests")
+
+    st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+
+    with st.container(border=True):
+        st.markdown("<div class='kt-card-title'>Add New Guest</div>", unsafe_allow_html=True)
+        st.caption("Placeholder page. Later we’ll add the guest form + scan card OCR.")
+        st.button("🧾 Enter Guest Manually (Coming Soon)", use_container_width=True, key="guest_form_placeholder")
+        st.button("📷 Upload Guest Card (Coming Soon)", use_container_width=True, key="guest_upload_placeholder")
+
+        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+
+        st.markdown("<div class='kt-ghost'>", unsafe_allow_html=True)
+        st.button("⬅ Return to Dashboard", use_container_width=True, key="guest_back", on_click=go, args=(PAGE_DASHBOARD,))
+        st.markdown("</div>", unsafe_allow_html=True)
+
+def render_next_steps_page():
+    render_header()
+    render_snapshot_block("next_steps")
+
+    st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+
+    with st.container(border=True):
+        st.markdown("<div class='kt-card-title'>Add Next Steps</div>", unsafe_allow_html=True)
+        st.caption("Placeholder for OCR + form entry. We’ll wire this up later.")
+        st.button("📷 Upload Card Here (Coming Soon)", use_container_width=True, key="ns_upload_placeholder")
+
+        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+
+        st.markdown("<div class='kt-ghost'>", unsafe_allow_html=True)
+        st.button("⬅ Return to Dashboard", use_container_width=True, key="ns_back", on_click=go, args=(PAGE_DASHBOARD,))
+        st.markdown("</div>", unsafe_allow_html=True)
+
 # ============================================================
-# MAIN
+# ROUTER
 # ============================================================
 if st.session_state.page == PAGE_DASHBOARD:
     render_dashboard()
+elif st.session_state.page == PAGE_ATTENDANCE:
+    render_attendance_page()
+elif st.session_state.page == PAGE_GUESTS:
+    render_guests_page()
 elif st.session_state.page == PAGE_NEXT_STEPS:
     render_next_steps_page()
 else:
-    # fallback
     go(PAGE_DASHBOARD)
