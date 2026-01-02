@@ -121,14 +121,30 @@ def load_tab(sheet: gspread.Spreadsheet, tab_name: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 def append_row(sheet: gspread.Spreadsheet, tab_name: str, row: Dict[str, str]) -> None:
-    """Append a row of values to a worksheet and show a success or error message."""
+    """
+    Append a row of values to a worksheet and show a success or error message.
+    Assumes `row` keys are already in the correct column order.
+    """
     try:
         worksheet = sheet.worksheet(tab_name)
-        worksheet.append_row(list(row.values()))
+
+        # Convert dict values to a list in a stable order
+        values = list(row.values())
+
+        worksheet.append_row(
+            values,
+            value_input_option="USER_ENTERED"
+        )
+
         st.success("Saved!")
         st.rerun()
+
+    except gspread.WorksheetNotFound:
+        st.error(f"Worksheet '{tab_name}' was not found.")
+
     except Exception as exc:
         st.error(f"Unable to save data: {exc}")
+
 
 # ---------------------------------------------------------------------------
 # UI component helpers
