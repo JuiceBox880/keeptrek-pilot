@@ -1,340 +1,227 @@
+import copy
+import datetime
+import os
 import streamlit as st
-import pandas as pd
-import gspread
-from google.oauth2.service_account import Credentials
-from typing import Dict
-from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Tuple
+from PIL import Image, ImageDraw, ImageFont
 
-# =========================
-# GOOGLE AUTH HELPERS
-# =========================
+# =====================================
+# Page Config
+# =====================================
+st.set_page_config(page_title="KeepTrek Dashboard", layout="wide")
 
-SHEETS_SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
+# =====================================
+# Simple Page Router
+# =====================================
+if "page" not in st.session_state:
+    st.session_state["page"] = "dashboard"
+
+def go_to(page_name: str):
+    st.session_state["page"] = page_name
+    st.experimental_rerun()
+
+# =====================================
+# Time Range Labels
+# =====================================
+TIME_RANGES = [
+    "Last Week",
+    "Last 30 Days",
+    "Last Quarter",
+    "Last 90 Days",
+    "One Year Snapshot",
 ]
 
+# =====================================
+# Mock Data (Replace later)
+# =====================================
+MOCK_DATA = {
+    "attendance": {
+        "Last Week": [248, "+4.2%"],
+        "Last 30 Days": [982, "+1.1%"],
+        "Last Quarter": [2901, "-0.6%"],
+        "Last 90 Days": [2875, "N/A"],
+        "One Year Snapshot": [11234, "+6.4%"],
+    },
+    "guests": {
+        "Last Week": [21, "+10%"],
+        "Last 30 Days": [78, "+3%"],
+        "Last Quarter": [212, "-2%"],
+        "Last 90 Days": [201, "N/A"],
+        "One Year Snapshot": [865, "+8%"],
+    },
+    "next_steps": {
+        "Last Week": [14, "+5%"],
+        "Last 30 Days": [63, "+2%"],
+        "Last Quarter": [188, "+1%"],
+        "Last 90 Days": [179, "N/A"],
+        "One Year Snapshot": [742, "+4%"],
+    },
+}
 
-def get_sheets_credentials() -> Credentials:
-    """
-    Returns Google credentials for Google Sheets using
-    the Streamlit secret: gcp_service_account_sheets
-    """
-    SECRET_NAME = "gcp_service_account_sheets"
+# =====================================
+# Helpers
+# =====================================
+def trend_arrow(change: str) -> str:
+    if not isinstance(change, str) or change == "N/A":
+        return "—"
+    if change.startswith("-"):
+        return "↓"
+    if change.startswith("+"):
+        return "↑"
+    return "→"
 
-    if SECRET_NAME not in st.secrets:
-        st.error(f"Missing Streamlit secret: {SECRET_NAME}")
-        st.stop()
+def trend_color(change: str) -> str:
+    if not isinstance(change, str) or change == "N/A":
+        return "#6b7280"
+    if change.startswith("-"):
+        return "#dc2626"
+    if change.startswith("+"):
+        return "#16a34a"
+    return "#6b7280"
 
-    service_account_info = dict(st.secrets[SECRET_NAME])
-
-    return Credentials.from_service_account_info(
-        service_account_info,
-        scopes=SHEETS_SCOPES,
-    )
-
-
-def get_vision_credentials() -> Credentials:
-    """
-    Returns Google credentials for Vision / Document AI using
-    the Streamlit secret: gcp_service_account_vision
-    """
-    SECRET_NAME = "gcp_service_account_vision"
-
-    if SECRET_NAME not in st.secrets:
-        st.error(f"Missing Streamlit secret: {SECRET_NAME}")
-        st.stop()
-
-    service_account_info = dict(st.secrets[SECRET_NAME])
-
-    return Credentials.from_service_account_info(service_account_info)
-
-
-def get_sheet():
-    """
-    Returns the Google Spreadsheet object for KeepTrek_Data
-    """
-    client = gspread.authorize(get_sheets_credentials())
-    return client.open("KeepTrek_Data")
-
-# ---------------------------------------------------------------------------
-# Configuration and constants
-# ---------------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class SheetsConfig:
-    """Configuration for Google Sheet and worksheet names."""
-    sheet_name: str = "KeepTrek_Data"
-    attendance_tab: str = "Attendance"
-    guests_tab: str = "New_Guests"
-    next_steps_tab: str = "Next_Steps"
-
-CONFIG = SheetsConfig()
-
-# Page identifiers for navigation
-PAGE_DASHBOARD = "dashboard"
-PAGE_ADD_ATTENDANCE = "add_attendance"
-PAGE_ADD_GUESTS = "add_guests"
-PAGE_ADD_NEXT_STEPS = "add_next_steps"
-
-# ---------------------------------------------------------------------------
-# Session & navigation helpers
-# ---------------------------------------------------------------------------
-
-def set_page(page: str) -> None:
-    """Update the current page in session state and trigger a rerun."""
-    st.session_state.page = page
-    st.rerun()
-
-def init_session_state() -> None:
-    """Initialize the session state with a default page if not present."""
-    if "page" not in st.session_state:
-        st.session_state.page = PAGE_DASHBOARD
-
-# ---------------------------------------------------------------------------
-# Google Sheets connectivity
-# ---------------------------------------------------------------------------
-
-def get_credentials() -> Credentials:
-    """
-    Create a Credentials instance from Streamlit secrets.
-
-    Expects st.secrets['gcp_service_account'] to contain a valid service account JSON.
-    """
-    return Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=["https://www.googleapis.com/auth/spreadsheets"],
-    )
-
-@st.cache_resource
-def get_sheet() -> gspread.Spreadsheet:
-    """Authorize with gspread and open the configured spreadsheet."""
-    client = gspread.authorize(get_credentials())
-    return client.open(CONFIG.sheet_name)
-
-def load_tab(sheet: gspread.Spreadsheet, tab_name: str) -> pd.DataFrame:
-    """Load all records from a worksheet into a DataFrame."""
+def safe_get_metric(data: dict, key: str, label: str):
     try:
-        worksheet = sheet.worksheet(tab_name)
-        return pd.DataFrame(worksheet.get_all_records())
+        entry = data.get(key, {}).get(label)
+        if entry and len(entry) >= 2:
+            return int(entry[0]), str(entry[1])
     except Exception:
-        # Return an empty DataFrame if the tab does not exist or fails to load
-        return pd.DataFrame()
+        pass
+    return 0, "N/A"
 
-def append_row(sheet: gspread.Spreadsheet, tab_name: str, row: Dict[str, str]) -> None:
-    """
-    Append a row of values to a worksheet and show a success or error message.
-    Assumes `row` keys are already in the correct column order.
-    """
+def generate_placeholder_logo(size=(180, 60), text="KeepTrek"):
+    img = Image.new("RGBA", size, (255, 255, 255, 0))
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+    w, h = draw.textsize(text, font=font)
+    draw.text(((size[0]-w)/2, (size[1]-h)/2), text, fill=(40,40,40), font=font)
+    return img
+
+def load_logo():
     try:
-        worksheet = sheet.worksheet(tab_name)
+        base = os.path.dirname(os.path.abspath(__file__))
+        return Image.open(os.path.join(base, "assets", "keeptrek_logo.png"))
+    except Exception:
+        return generate_placeholder_logo()
 
-        # Convert dict values to a list in a stable order
-        values = list(row.values())
+logo = load_logo()
 
-        worksheet.append_row(
-            values,
-            value_input_option="USER_ENTERED"
-        )
+# =====================================
+# Session State Init
+# =====================================
+if "data" not in st.session_state:
+    st.session_state["data"] = copy.deepcopy(MOCK_DATA)
 
-        st.success("Saved!")
-        st.rerun()
-
-    except gspread.WorksheetNotFound:
-        st.error(f"Worksheet '{tab_name}' was not found.")
-
-    except Exception as exc:
-        st.error(f"Unable to save data: {exc}")
-
-
-# ---------------------------------------------------------------------------
-# UI component helpers
-# ---------------------------------------------------------------------------
-
-def dashboard_card(title: str, value: int, caption: str, page_to_open: str) -> None:
-    """Render a metric card with a button to jump to an add-data page."""
-    with st.container(border=True):
-        st.subheader(title)
-        st.markdown(f"<h1>{value}</h1>", unsafe_allow_html=True)
-        st.caption(caption)
-        st.button(
-            "➕ Add New Data",
-            use_container_width=True,
-            on_click=set_page,
-            args=(page_to_open,),
-        )
-
-def render_nav_buttons() -> None:
-    """Render navigation buttons to switch between add‑data forms."""
-    st.markdown("### Jump to another data entry")
-    col1, col2, col3 = st.columns(3)
-    col1.button("Attendance", on_click=set_page, args=(PAGE_ADD_ATTENDANCE,))
-    col2.button("Guests", on_click=set_page, args=(PAGE_ADD_GUESTS,))
-    col3.button("Next Steps", on_click=set_page, args=(PAGE_ADD_NEXT_STEPS,))
-
-def add_attendance_form(sheet: gspread.Spreadsheet) -> None:
-    """Display the attendance submission form."""
-    st.subheader("➕ Add Church Attendance")
-    with st.form("attendance_form"):
-        date = st.date_input("Service Date")
-        count = st.number_input("Attendance Count", min_value=0, step=1)
-        if st.form_submit_button("Save Attendance"):
-            append_row(
-                sheet,
-                CONFIG.attendance_tab,
-                {"Service Date": str(date), "Attendance Count": int(count)},
-            )
-
-def add_guest_form(sheet: gspread.Spreadsheet) -> None:
-    """Display the new guest submission form."""
-    st.subheader("➕ Add New Guest")
-    with st.form("guest_form"):
-        name = st.text_input("Guest Name")
-        visit_date = st.date_input("Visit Date")
-        contact = st.text_input("Contact Info (optional)")
-        if st.form_submit_button("Save Guest"):
-            append_row(
-                sheet,
-                CONFIG.guests_tab,
-                {"Guest Name": name, "Visit Date": str(visit_date), "Contact Info": contact},
-            )
-
-def add_next_step_form(sheet: gspread.Spreadsheet) -> None:
-    """Display the next‑step submission form."""
-    st.subheader("➕ Add Next Step")
-    with st.form("next_steps_form"):
-        name = st.text_input("Name")
-        step = st.text_input("Next Step")
-        date = st.date_input("Date")
-        if st.form_submit_button("Save Next Step"):
-            append_row(
-                sheet,
-                CONFIG.next_steps_tab,
-                {"Name": name, "Next Step": step, "Date": str(date)},
-            )
-
-def render_previews(attendance: pd.DataFrame, guests: pd.DataFrame, next_steps: pd.DataFrame) -> None:
-    """Display preview tables for all three metrics."""
-    with st.container(border=True):
-        st.subheader("📊 Attendance Records")
-        if attendance.empty:
-            st.info("No attendance data yet.")
-        else:
-            st.dataframe(attendance, use_container_width=True)
-
-    with st.container(border=True):
-        st.subheader("👋 New Guests")
-        if guests.empty:
-            st.info("No guest data yet.")
-        else:
-            st.dataframe(guests, use_container_width=True)
-
-    with st.container(border=True):
-        st.subheader("➡️ Next Steps")
-        if next_steps.empty:
-            st.info("No next steps data yet.")
-        else:
-            st.dataframe(next_steps, use_container_width=True)
-
-def render_footer() -> None:
-    """Render the footer text."""
-    st.markdown(
-        "<p style='text-align:center;color:#6b7280;font-weight:600;'>"
-        "KeepTrek • Church Metrics Made Meaningful</p>",
-        unsafe_allow_html=True,
-    )
-
-# ---------------------------------------------------------------------------
-# Main application
-# ---------------------------------------------------------------------------
-
-def main() -> None:
-    """Main entry point for the Streamlit application."""
-    st.set_page_config(page_title="KeepTrek Dashboard", layout="wide", page_icon="📊")
-
-    # Apply custom CSS styling
+# =====================================
+# Header (all pages)
+# =====================================
+header_col1, header_col2 = st.columns([2, 6])
+with header_col1:
+    st.image(logo, width=160)
+with header_col2:
     st.markdown(
         """
-        <style>
-        body { background: linear-gradient(180deg, #f7fbfd, #fdfefe); }
-        h1, h2, h3 { color: #054063; }
-        .stButton>button {
-            background: linear-gradient(135deg, #179171, #34a94d);
-            color: white;
-            font-weight: 800;
-            border-radius: 8px;
-            border: none;
-            padding: 0.6rem 0.9rem;
-        }
-        .stButton>button:hover {
-            background: linear-gradient(135deg, #34a94d, #179171);
-        }
-        </style>
+        <h1 style="margin-bottom:0;">KeepTrek</h1>
+        <p style="color:#6b7280;margin-top:0;">Turning attendance into insight</p>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
 
-    init_session_state()
-    sheet = get_sheet()
+st.divider()
 
-    # Load data once
-    attendance_df = load_tab(sheet, CONFIG.attendance_tab)
-    guests_df = load_tab(sheet, CONFIG.guests_tab)
-    next_steps_df = load_tab(sheet, CONFIG.next_steps_tab)
+# =====================================
+# DASHBOARD PAGE
+# =====================================
+if st.session_state["page"] == "dashboard":
 
-    # Header with logo
-    logo = Image.open("assets/keeptrek_logo.png")
-    spacer, center, spacer2 = st.columns([1, 2, 1])
-    with center:
-        st.image(logo, width=720)
+    selected_range = st.selectbox("Time Range", TIME_RANGES, index=0)
+
+    def metric_card(title: str, data_key: str, key_prefix: str):
         st.markdown(
-            "<p style='text-align:center;color:#47919e;font-weight:700;'>"
-            "Measuring Meaningful Metrics</p>",
-            unsafe_allow_html=True,
+            """
+            <div style="
+                border:1px solid #e5e7eb;
+                border-radius:8px;
+                padding:16px;
+                background:white;">
+            """,
+            unsafe_allow_html=True
         )
 
-    # Metric cards at top
+        st.subheader(title)
+
+        value, change = safe_get_metric(st.session_state["data"], data_key, selected_range)
+        st.markdown(
+            f"""
+            <div style="display:flex;align-items:baseline;gap:14px;">
+              <div style="font-size:46px;font-weight:800;">{value}</div>
+              <div style="font-weight:700;color:{trend_color(change)};">
+                {trend_arrow(change)} {change}
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+        for label in TIME_RANGES:
+            v, c = safe_get_metric(st.session_state["data"], data_key, label)
+            st.markdown(
+                f"""
+                <div style="display:flex;justify-content:space-between;">
+                  <div>{label}</div>
+                  <div style="color:{trend_color(c)};">
+                    {v} {trend_arrow(c)} {c}
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("➕ Add New Data", key=f"{key_prefix}_add"):
+                go_to(f"add_{data_key}")
+        with col_b:
+            st.button("🔄 Refresh", key=f"{key_prefix}_refresh")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
     col1, col2, col3 = st.columns(3)
     with col1:
-        dashboard_card(
-            "Church Attendance",
-            int(attendance_df["Attendance Count"].sum()) if "Attendance Count" in attendance_df.columns else 0,
-            "Total attendance (all services)",
-            PAGE_ADD_ATTENDANCE,
-        )
+        metric_card("Church Attendance", "attendance", "attendance")
     with col2:
-        dashboard_card(
-            "New Guests",
-            len(guests_df),
-            "Total new guests",
-            PAGE_ADD_GUESTS,
-        )
+        metric_card("New Guests", "guests", "guests")
     with col3:
-        dashboard_card(
-            "Next Steps",
-            len(next_steps_df),
-            "People taking next steps",
-            PAGE_ADD_NEXT_STEPS,
-        )
+        metric_card("Next Steps", "next_steps", "next_steps")
 
     st.divider()
 
-    # Routing logic
-    current_page = st.session_state.page
-    if current_page == PAGE_DASHBOARD:
-        render_previews(attendance_df, guests_df, next_steps_df)
-    elif current_page == PAGE_ADD_ATTENDANCE:
-        add_attendance_form(sheet)
-        render_nav_buttons()
-    elif current_page == PAGE_ADD_GUESTS:
-        add_guest_form(sheet)
-        render_nav_buttons()
-    elif current_page == PAGE_ADD_NEXT_STEPS:
-        add_next_step_form(sheet)
-        render_nav_buttons()
+    st.markdown(
+        """
+        <div style="opacity:.7;">
+          <h3>🩺 Church Health Dashboard</h3>
+          <p>Coming Soon</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-    render_footer()
+# =====================================
+# ADD PAGES (PLACEHOLDERS)
+# =====================================
+elif st.session_state["page"] == "add_attendance":
+    st.subheader("➕ Add Church Attendance")
+    st.write("This page will contain the attendance form.")
+    st.button("⬅ Back to Dashboard", on_click=go_to, args=("dashboard",))
 
-if __name__ == "__main__":
-    main()
+elif st.session_state["page"] == "add_guests":
+    st.subheader("➕ Add New Guest")
+    st.write("This page will contain guest entry and scan card.")
+    st.button("⬅ Back to Dashboard", on_click=go_to, args=("dashboard",))
+
+elif st.session_state["page"] == "add_next_steps":
+    st.subheader("➕ Add Next Steps")
+    st.write("This page will contain next steps selection.")
+    st.button("⬅ Back to Dashboard", on_click=go_to, args=("dashboard",))
