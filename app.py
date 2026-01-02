@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import gspread
 from google.oauth2.service_account import Credentials
 
