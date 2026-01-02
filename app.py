@@ -15,10 +15,67 @@ PALETTE = {
     "bg_bottom": "#fdfefe",
 }
 
+TIME_RANGES = ["Last Week", "Last 30 Days", "Last Quarter", "Last 90 Days", "One Year Snapshot"]
+
+# ============================================================
+# PLACEHOLDER DATA (hard-coded)
+# ============================================================
+PLACEHOLDER = {
+    "attendance": {
+        "title": "Church Attendance",
+        "caption": "Total attendance (all services)",
+        "hero": 248,
+        "ranges": {
+            "Last 30 Days": 982,
+            "Last Quarter": 2901,
+            "Last 90 Days": 2875,
+            "One Year Snapshot": 11234,
+        },
+        "trend": "+4.2%",
+    },
+    "guests": {
+        "title": "New Guests",
+        "caption": "Total new guests",
+        "hero": 21,
+        "ranges": {
+            "Last 30 Days": 78,
+            "Last Quarter": 212,
+            "Last 90 Days": 201,
+            "One Year Snapshot": 865,
+        },
+        "trend": "+10%",
+    },
+    "next_steps": {
+        "title": "Next Steps",
+        "caption": "People taking next steps",
+        "hero": 14,
+        "ranges": {
+            "Last 30 Days": 63,
+            "Last Quarter": 188,
+            "Last 90 Days": 179,
+            "One Year Snapshot": 742,
+        },
+        "trend": "+5%",
+    },
+}
+
 # ============================================================
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(page_title="KeepTrek Dashboard (Placeholder)", layout="wide", page_icon="📊")
+
+# ============================================================
+# SIMPLE ROUTER (Dashboard -> Next Steps page)
+# ============================================================
+PAGE_DASHBOARD = "dashboard"
+PAGE_NEXT_STEPS = "next_steps_page"
+
+if "page" not in st.session_state:
+    st.session_state.page = PAGE_DASHBOARD
+
+def go(page: str) -> None:
+    st.session_state.page = page
+    st.rerun()
 
 # ============================================================
 # STYLING
@@ -59,7 +116,6 @@ st.markdown(
         margin-bottom: 0.2rem;
       }}
 
-      /* Card title */
       .kt-card-title {{
         margin: 0 0 0.35rem 0;
         font-size: 1.25rem;
@@ -67,7 +123,6 @@ st.markdown(
         color: var(--kt-navy);
       }}
 
-      /* Big number */
       .kt-hero-number {{
         font-size: 3.2rem;
         font-weight: 950;
@@ -116,7 +171,6 @@ st.markdown(
         color: var(--kt-teal);
       }}
 
-      /* Make Streamlit containers feel "Apple clean" */
       div[data-testid="stVerticalBlockBorderWrapper"] {{
         border-radius: 14px !important;
         border: 1px solid rgba(5, 64, 99, 0.10) !important;
@@ -124,7 +178,6 @@ st.markdown(
         background: rgba(255, 255, 255, 0.92) !important;
       }}
 
-      /* Buttons */
       .stButton > button {{
         background: linear-gradient(135deg, var(--kt-teal), var(--kt-green)) !important;
         color: white !important;
@@ -144,11 +197,11 @@ st.markdown(
         outline: 2px solid var(--kt-blue-gray) !important;
       }}
 
-      /* Secondary (ghost) button */
+      /* "Ghost" button wrapper */
       .kt-ghost .stButton > button {{
         background: transparent !important;
         color: var(--kt-navy) !important;
-        border: 1px solid rgba(5, 64, 99, 0.18) !important;
+        border: 1px solid rgba(5, 64, 99, 0.20) !important;
         box-shadow: none !important;
       }}
 
@@ -156,7 +209,6 @@ st.markdown(
         background: rgba(71, 145, 158, 0.08) !important;
       }}
 
-      /* Footer */
       .kt-footer {{
         text-align: center;
         color: var(--kt-muted);
@@ -177,66 +229,16 @@ def load_logo():
         return Image.open(path)
     return None
 
-# ============================================================
-# HEADER
-# ============================================================
-logo = load_logo()
-spacer, center, spacer2 = st.columns([1, 2, 1])
-with center:
-    if logo:
-        st.image(logo, width=720)
-    else:
-        st.markdown(
-            "<h1 style='text-align:center; margin-bottom:0;'>KeepTrek</h1>",
-            unsafe_allow_html=True,
-        )
-    st.markdown("<div class='kt-tagline'>Measuring Meaningful Metrics</div>", unsafe_allow_html=True)
-
-st.divider()
-
-# ============================================================
-# PLACEHOLDER DATA (hard-coded)
-# ============================================================
-TIME_RANGES = ["Last Week", "Last 30 Days", "Last Quarter", "Last 90 Days", "One Year Snapshot"]
-
-PLACEHOLDER = {
-    "attendance": {
-        "title": "Church Attendance",
-        "caption": "Total attendance (all services)",
-        "hero": 248,
-        "ranges": {
-            "Last 30 Days": 982,
-            "Last Quarter": 2901,
-            "Last 90 Days": 2875,
-            "One Year Snapshot": 11234,
-        },
-        "trend": "+4.2%",
-    },
-    "guests": {
-        "title": "New Guests",
-        "caption": "Total new guests",
-        "hero": 21,
-        "ranges": {
-            "Last 30 Days": 78,
-            "Last Quarter": 212,
-            "Last 90 Days": 201,
-            "One Year Snapshot": 865,
-        },
-        "trend": "+10%",
-    },
-    "next_steps": {
-        "title": "Next Steps",
-        "caption": "People taking next steps",
-        "hero": 14,
-        "ranges": {
-            "Last 30 Days": 63,
-            "Last Quarter": 188,
-            "Last 90 Days": 179,
-            "One Year Snapshot": 742,
-        },
-        "trend": "+5%",
-    },
-}
+def render_header():
+    logo = load_logo()
+    spacer, center, spacer2 = st.columns([1, 2, 1])
+    with center:
+        if logo:
+            st.image(logo, width=720)
+        else:
+            st.markdown("<h1 style='text-align:center; margin-bottom:0;'>KeepTrek</h1>", unsafe_allow_html=True)
+        st.markdown("<div class='kt-tagline'>Measuring Meaningful Metrics</div>", unsafe_allow_html=True)
+    st.divider()
 
 # ============================================================
 # UI COMPONENTS
@@ -247,7 +249,11 @@ def metric_card(card_key: str):
     with st.container(border=True):
         st.markdown(f"<div class='kt-card-title'>{data['title']}</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='kt-hero-number'>{data['hero']}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kt-hero-sub'>{data['caption']} &nbsp; • &nbsp; <span class='kt-chip'>↑ {data['trend']}</span></div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div class='kt-hero-sub'>{data['caption']} &nbsp; • &nbsp; "
+            f"<span class='kt-chip'>↑ {data['trend']}</span></div>",
+            unsafe_allow_html=True,
+        )
 
         st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
 
@@ -267,35 +273,99 @@ def metric_card(card_key: str):
 
         col_a, col_b = st.columns(2)
         with col_a:
-            st.button("➕ Add New Data", use_container_width=True, key=f"{card_key}_add")
+            if card_key == "next_steps":
+                st.button(
+                    "➕ Add New Data",
+                    use_container_width=True,
+                    key=f"{card_key}_add",
+                    on_click=go,
+                    args=(PAGE_NEXT_STEPS,),
+                )
+            else:
+                st.button("➕ Add New Data", use_container_width=True, key=f"{card_key}_add")
+
         with col_b:
             st.button("🔄 Refresh", use_container_width=True, key=f"{card_key}_refresh")
 
+def render_next_steps_page():
+    render_header()
+
+    # Top stats (same data as dashboard)
+    with st.container(border=True):
+        st.markdown("<div class='kt-card-title'>Next Steps Snapshot</div>", unsafe_allow_html=True)
+
+        data = PLACEHOLDER["next_steps"]
+        st.markdown(f"<div class='kt-hero-number'>{data['hero']}</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div class='kt-hero-sub'>{data['caption']} &nbsp; • &nbsp; "
+            f"<span class='kt-chip'>↑ {data['trend']}</span></div>",
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+        for label in TIME_RANGES[1:]:
+            val = data["ranges"].get(label, "—")
+            st.markdown(
+                f"""
+                <div class="kt-row">
+                  <div class="kt-row-label">{label}</div>
+                  <div class="kt-row-value">{val}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+
+    # Upload Card (non-functional placeholder)
+    with st.container(border=True):
+        st.markdown("<div class='kt-card-title'>Add Next Steps</div>", unsafe_allow_html=True)
+        st.caption("Placeholder for OCR + form entry. We’ll wire this up later.")
+        st.button("📷 Upload Card Here (Coming Soon)", use_container_width=True, key="ns_upload_placeholder")
+
+        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+
+        # Home button
+        st.markdown("<div class='kt-ghost'>", unsafe_allow_html=True)
+        st.button("⬅ Return to Dashboard", use_container_width=True, key="ns_back", on_click=go, args=(PAGE_DASHBOARD,))
+        st.markdown("</div>", unsafe_allow_html=True)
+
 # ============================================================
-# DASHBOARD LAYOUT
+# ROUTED PAGES
 # ============================================================
-col1, col2, col3 = st.columns(3)
+def render_dashboard():
+    render_header()
 
-with col1:
-    metric_card("attendance")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        metric_card("attendance")
+    with col2:
+        metric_card("guests")
+    with col3:
+        metric_card("next_steps")
 
-with col2:
-    metric_card("guests")
+    st.divider()
 
-with col3:
-    metric_card("next_steps")
+    with st.container(border=True):
+        st.markdown(
+            """
+            <div style="opacity:0.78;">
+              <h3 style="margin-bottom:6px; color: var(--kt-navy);">🩺 Church Health Dashboard</h3>
+              <p style="margin-top:0; color: var(--kt-blue-gray); font-weight:700;">Coming Soon</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-st.divider()
+    st.markdown("<div class='kt-footer'>KeepTrek • Church Metrics Made Meaningful</div>", unsafe_allow_html=True)
 
-with st.container(border=True):
-    st.markdown(
-        """
-        <div style="opacity:0.78;">
-          <h3 style="margin-bottom:6px; color: var(--kt-navy);">🩺 Church Health Dashboard</h3>
-          <p style="margin-top:0; color: var(--kt-blue-gray); font-weight:700;">Coming Soon</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-st.markdown("<div class='kt-footer'>KeepTrek • Church Metrics Made Meaningful</div>", unsafe_allow_html=True)
+# ============================================================
+# MAIN
+# ============================================================
+if st.session_state.page == PAGE_DASHBOARD:
+    render_dashboard()
+elif st.session_state.page == PAGE_NEXT_STEPS:
+    render_next_steps_page()
+else:
+    # fallback
+    go(PAGE_DASHBOARD)
