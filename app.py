@@ -13,26 +13,46 @@ SHEETS_SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
+
 def get_sheets_credentials() -> Credentials:
-    if "gcp_service_account_sheets" not in st.secrets:
-        st.error("Missing secret: gcp_service_account_sheets")
+    """
+    Returns Google credentials for Google Sheets using
+    the Streamlit secret: gcp_service_account_sheets
+    """
+    SECRET_NAME = "gcp_service_account_sheets"
+
+    if SECRET_NAME not in st.secrets:
+        st.error(f"Missing Streamlit secret: {SECRET_NAME}")
         st.stop()
 
-    sa_info = dict(st.secrets["gcp_service_account_sheets"])
+    service_account_info = dict(st.secrets[SECRET_NAME])
+
     return Credentials.from_service_account_info(
-        sa_info,
-        scopes=SHEETS_SCOPES
+        service_account_info,
+        scopes=SHEETS_SCOPES,
     )
 
+
 def get_vision_credentials() -> Credentials:
-    if "gcp_service_account_vision" not in st.secrets:
-        st.error("Missing secret: gcp_service_account_vision")
+    """
+    Returns Google credentials for Vision / Document AI using
+    the Streamlit secret: gcp_service_account_vision
+    """
+    SECRET_NAME = "gcp_service_account_vision"
+
+    if SECRET_NAME not in st.secrets:
+        st.error(f"Missing Streamlit secret: {SECRET_NAME}")
         st.stop()
 
-    sa_info = dict(st.secrets["gcp_service_account_vision"])
-    return Credentials.from_service_account_info(sa_info)
+    service_account_info = dict(st.secrets[SECRET_NAME])
+
+    return Credentials.from_service_account_info(service_account_info)
+
 
 def get_sheet():
+    """
+    Returns the Google Spreadsheet object for KeepTrek_Data
+    """
     client = gspread.authorize(get_sheets_credentials())
     return client.open("KeepTrek_Data")
 
