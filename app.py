@@ -1,14 +1,39 @@
-# app.py – enhanced version
-from __future__ import annotations
-
-from dataclasses import dataclass
-from typing import Dict, List, Tuple
-
-import pandas as pd
 import streamlit as st
-from PIL import Image
+import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
+
+# =========================
+# GOOGLE AUTH HELPERS
+# =========================
+
+SHEETS_SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
+
+def get_sheets_credentials() -> Credentials:
+    if "gcp_service_account_sheets" not in st.secrets:
+        st.error("Missing secret: gcp_service_account_sheets")
+        st.stop()
+
+    sa_info = dict(st.secrets["gcp_service_account_sheets"])
+    return Credentials.from_service_account_info(
+        sa_info,
+        scopes=SHEETS_SCOPES
+    )
+
+def get_vision_credentials() -> Credentials:
+    if "gcp_service_account_vision" not in st.secrets:
+        st.error("Missing secret: gcp_service_account_vision")
+        st.stop()
+
+    sa_info = dict(st.secrets["gcp_service_account_vision"])
+    return Credentials.from_service_account_info(sa_info)
+
+def get_sheet():
+    client = gspread.authorize(get_sheets_credentials())
+    return client.open("KeepTrek_Data")
 
 # ---------------------------------------------------------------------------
 # Configuration and constants
