@@ -451,46 +451,48 @@ def _pc_smoke_test():
     return ok, app_id, secret
 
 
-def _pc_fetch_people_stub(limit: int = 5):
+def _pc_fetch_people_stub(limit: int = 10):
     """
-    Stub: later you'll replace this with real Planning Center API request.
-    For now it just returns a pretend list to prove the UI flow works.
+    REAL fetch (yes, we kept the same function name to minimize changes).
+    Pulls the most recently updated people (best-effort ordering).
     """
-    return [
-        {"name": "Test Person One", "status": "stubbed"},
-        {"name": "Test Person Two", "status": "stubbed"},
-    ][:limit]
+    import requests
 
+    app_id, secret = _pc_get_credentials()
+    if not (app_id and secret):
+        raise RuntimeError("Missing PCC_APP_ID / PCC_SECRET")
 
-def render_planning_center_panel():
-    with st.container(border=True):
-        st.markdown("<div class='kt-card-title'>🔌 Planning Center (Beta)</div>", unsafe_allow_html=True)
-        st.caption("This is a safe stub. It won’t change existing behavior. It only checks secrets and simulates a fetch.")
+    url = "https://api.planningcenteronline.com/people/v2/people"
+    params = {
+        "per_page": limit,
+        # Planning Center endpoints are generally orderable; this is the common pattern.
+        # If your account rejects this param, the call will still work without it.
+        "order": "-updated_at",
+    }
 
-        colA, colB = st.columns([1, 1])
+    resp = requests.get(url, auth=(app_id, secret), params=params, timeout=20)
 
-        with colA:
-            if st.button("🧪 Test Connection (Check Secrets)", use_container_width=True, key="pc_test"):
-                ok, app_id, secret = _pc_smoke_test()
-                if ok:
-                    st.success("Secrets found ✅ (No API call made yet.)")
-                    st.write({"PCC_APP_ID": str(app_id)[:4] + "…", "PCC_SECRET": "••••••••"})
-                else:
-                    st.error("Secrets missing ❌ Add PCC_APP_ID and PCC_SECRET to Streamlit secrets (or env vars).")
-                    st.info("See setup steps below to add them safely.")
+    if resp.status_code == 401:
+        raise RuntimeError("401 Unauthorized: PCC_APP_ID / PCC_SECRET are not accepted by the API.")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"PCO error {resp.status_code}: {resp.text[:300]}")
 
-        with colB:
-            if st.button("📥 Fetch New People (Stub)", use_container_width=True, key="pc_fetch"):
-                people = _pc_fetch_people_stub(limit=5)
-                st.success(f"Fetched {len(people)} (stubbed) ✅")
-                st.session_state["pc_last_people_stub"] = people
+    payload = resp.json()
+    people = []
 
-        if "pc_last_people_stub" in st.session_state:
-            st.markdown("**Latest fetched (stubbed):**")
-            st.json(st.session_state["pc_last_people_stub"])
+    for item in payload.get("data", []):
+        attrs = item.get("attributes", {}) or {}
+        first = (attrs.get("first_name") or "").strip()
+        last = (attrs.get("last_name") or "").strip()
+        name = (first + " " + last).strip() or attrs.get("name") or "Unknown"
+        people.append(
+            {
+                "id": item.get("id"),
+                "name": name,
+                "status": "live",
+                "updated_at": attrs.get("updated_at"),
+                "created_at": attrs.get("created_at"),
+            }
+        )
 
-
-# Only show the panel on the dashboard page (keeps other pages untouched)
-if st.session_state.page == PAGE_DASHBOARD:
-    render_planning_center_panel()
-
+    return people
