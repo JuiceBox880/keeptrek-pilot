@@ -415,8 +415,8 @@ elif st.session_state.page == PAGE_NEXT_STEPS:
     render_next_steps_page()
 else:
     go(PAGE_DASHBOARD)
-    # ============================================================
-# PLANNING CENTER (stub integration - safe to add at bottom)
+# ============================================================
+# PLANNING CENTER (Live integration - safe add-on at bottom)
 # ============================================================
 def _pc_get_credentials():
     """
@@ -444,55 +444,112 @@ def _pc_get_credentials():
 
 def _pc_smoke_test():
     """
-    No API calls yet. Just verifies credentials exist and are non-empty.
+    No API calls. Just verifies credentials exist and are non-empty.
     """
     app_id, secret = _pc_get_credentials()
     ok = bool(app_id and secret)
     return ok, app_id, secret
 
 
-def _pc_fetch_people_stub(limit: int = 10):
+def _pc_fetch_people(limit: int = 25):
     """
-    REAL fetch (yes, we kept the same function name to minimize changes).
-    Pulls the most recently updated people (best-effort ordering).
+    Fetches people from Planning Center People API.
+    Attempts to order by most recently updated. If order param is rejected,
+    retries without it.
     """
     import requests
 
     app_id, secret = _pc_get_credentials()
     if not (app_id and secret):
-        raise RuntimeError("Missing PCC_APP_ID / PCC_SECRET")
+        raise RuntimeError("Missing PCC_APP_ID / PCC_SECRET in Streamlit Secrets (or env vars).")
 
     url = "https://api.planningcenteronline.com/people/v2/people"
-    params = {
-        "per_page": limit,
-        # Planning Center endpoints are generally orderable; this is the common pattern.
-        # If your account rejects this param, the call will still work without it.
-        "order": "-updated_at",
-    }
 
-    resp = requests.get(url, auth=(app_id, secret), params=params, timeout=20)
+    def do_request(with_order: bool):
+        params = {"per_page": limit}
+        if with_order:
+            params["order"] = "-updated_at"
+        return requests.get(url, auth=(app_id, secret), params=params, timeout=20)
+
+    resp = do_request(with_order=True)
+
+    # If the 'order' param isn't supported in your org/account, retry without it.
+    if resp.status_code == 400 and "order" in resp.text.lower():
+        resp = do_request(with_order=False)
 
     if resp.status_code == 401:
-        raise RuntimeError("401 Unauthorized: PCC_APP_ID / PCC_SECRET are not accepted by the API.")
+        raise RuntimeError("401 Unauthorized: Planning Center did not accept PCC_APP_ID / PCC_SECRET.")
     if resp.status_code >= 400:
         raise RuntimeError(f"PCO error {resp.status_code}: {resp.text[:300]}")
 
     payload = resp.json()
-    people = []
+    rows = []
+    raw = []
 
-    for item in payload.get("data", []):
+    for item in payload.get("data", []) or []:
         attrs = item.get("attributes", {}) or {}
         first = (attrs.get("first_name") or "").strip()
         last = (attrs.get("last_name") or "").strip()
-        name = (first + " " + last).strip() or attrs.get("name") or "Unknown"
-        people.append(
-            {
-                "id": item.get("id"),
-                "name": name,
-                "status": "live",
-                "updated_at": attrs.get("updated_at"),
-                "created_at": attrs.get("created_at"),
-            }
-        )
+        name = (first + " " + last).strip() or (attrs.get("name") or "Unknown")
 
-    return people
+        row = {
+            "id": item.get("id"),
+            "name": name,
+            "created_at": attrs.get("created_at"),
+            "updated_at": attrs.get("updated_at"),
+        }
+        rows.append(row)
+        raw.append({"id": item.get("id"), "type": item.get("type"), "attributes": attrs})
+
+    return rows, raw
+
+
+def render_planning_center_panel():
+    """
+    Renders a dashboard-only panel with:
+      - Secrets test
+      - Live fetch
+      - Table + raw viewer
+    """
+    with st.container(border=True):
+        st.markdown("<div class='kt-card-title'>🔌 Planning Center (Live)</div>", unsafe_allow_html=True)
+        st.caption("Pull real People records from Planning Center. Safe add-on, no impact on existing dashboard cards.")
+
+        colA, colB, colC = st.columns([1, 1, 1])
+
+        with colA:
+            if st.button("🧪 Test Connection (Secrets)", use_container_width=True, key="pc_test"):
+                ok, app_id, secret = _pc_smoke_test()
+                if ok:
+                    st.success("Secrets found ✅ (Still no API call yet.)")
+                    st.write({"PCC_APP_ID": str(app_id)[:4] + "…", "PCC_SECRET": "••••••••"})
+                else:
+                    st.error("Secrets missing ❌ Add PCC_APP_ID and PCC_SECRET to Streamlit Secrets.")
+                    st.info("Example:\n\nPCC_APP_ID = \"...\"\nPCC_SECRET = \"...\"")
+
+        with colB:
+            limit = st.number_input("How many people?", min_value=1, max_value=100, value=25, step=5, key="pc_limit")
+
+        with colC:
+            if st.button("📥 Fetch Real People", use_container_width=True, key="pc_fetch"):
+                try:
+                    rows, raw = _pc_fetch_people(limit=int(limit))
+                    st.session_state["pc_people_rows"] = rows
+                    st.session_state["pc_people_raw"] = raw
+                    st.success(f"Fetched {len(rows)} people ✅")
+                except Exception as e:
+                    st.error(str(e))
+
+        # Display results (if any)
+        if "pc_people_rows" in st.session_state:
+            st.markdown("**Latest fetched people:**")
+            st.dataframe(st.session_state["pc_people_rows"], use_container_width=True, hide_index=True)
+
+            with st.expander("Show raw payload (attributes only)"):
+                st.json(st.session_state.get("pc_people_raw", []))
+
+
+# IMPORTANT: This is the missing piece.
+# Show the panel ONLY on the dashboard page.
+if "page" in st.session_state and st.session_state.page == PAGE_DASHBOARD:
+    render_planning_center_panel()
