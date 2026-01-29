@@ -415,3 +415,82 @@ elif st.session_state.page == PAGE_NEXT_STEPS:
     render_next_steps_page()
 else:
     go(PAGE_DASHBOARD)
+    # ============================================================
+# PLANNING CENTER (stub integration - safe to add at bottom)
+# ============================================================
+def _pc_get_credentials():
+    """
+    Reads Planning Center credentials from Streamlit secrets or environment variables.
+    Priority:
+      1) st.secrets["PCC_APP_ID"], st.secrets["PCC_SECRET"]
+      2) os.environ["PCC_APP_ID"], os.environ["PCC_SECRET"]
+    """
+    app_id = None
+    secret = None
+
+    # Streamlit secrets (preferred on Streamlit Cloud)
+    try:
+        app_id = st.secrets.get("PCC_APP_ID")
+        secret = st.secrets.get("PCC_SECRET")
+    except Exception:
+        pass
+
+    # Environment variables (handy locally)
+    app_id = app_id or os.getenv("PCC_APP_ID")
+    secret = secret or os.getenv("PCC_SECRET")
+
+    return app_id, secret
+
+
+def _pc_smoke_test():
+    """
+    No API calls yet. Just verifies credentials exist and are non-empty.
+    """
+    app_id, secret = _pc_get_credentials()
+    ok = bool(app_id and secret)
+    return ok, app_id, secret
+
+
+def _pc_fetch_people_stub(limit: int = 5):
+    """
+    Stub: later you'll replace this with real Planning Center API request.
+    For now it just returns a pretend list to prove the UI flow works.
+    """
+    return [
+        {"name": "Test Person One", "status": "stubbed"},
+        {"name": "Test Person Two", "status": "stubbed"},
+    ][:limit]
+
+
+def render_planning_center_panel():
+    with st.container(border=True):
+        st.markdown("<div class='kt-card-title'>🔌 Planning Center (Beta)</div>", unsafe_allow_html=True)
+        st.caption("This is a safe stub. It won’t change existing behavior. It only checks secrets and simulates a fetch.")
+
+        colA, colB = st.columns([1, 1])
+
+        with colA:
+            if st.button("🧪 Test Connection (Check Secrets)", use_container_width=True, key="pc_test"):
+                ok, app_id, secret = _pc_smoke_test()
+                if ok:
+                    st.success("Secrets found ✅ (No API call made yet.)")
+                    st.write({"PCC_APP_ID": str(app_id)[:4] + "…", "PCC_SECRET": "••••••••"})
+                else:
+                    st.error("Secrets missing ❌ Add PCC_APP_ID and PCC_SECRET to Streamlit secrets (or env vars).")
+                    st.info("See setup steps below to add them safely.")
+
+        with colB:
+            if st.button("📥 Fetch New People (Stub)", use_container_width=True, key="pc_fetch"):
+                people = _pc_fetch_people_stub(limit=5)
+                st.success(f"Fetched {len(people)} (stubbed) ✅")
+                st.session_state["pc_last_people_stub"] = people
+
+        if "pc_last_people_stub" in st.session_state:
+            st.markdown("**Latest fetched (stubbed):**")
+            st.json(st.session_state["pc_last_people_stub"])
+
+
+# Only show the panel on the dashboard page (keeps other pages untouched)
+if st.session_state.page == PAGE_DASHBOARD:
+    render_planning_center_panel()
+
